@@ -1,26 +1,20 @@
 import json
+import os
 import uvicorn
-from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
+from starlette.applications import Starlette
+from starlette.routing import Route
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+from starlette.middleware import Middleware
+from starlette.middleware.cors import CORSMiddleware
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
-
-# 1. 初始化 FastAPI 和 MCP Server
-app = FastAPI(title="金陵文璟酒店专属管家 MCP Server")
-server = Server("wenjing-hotel-mcp")
-
-# 添加 CORS 支持，Render 部署时可能需要
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 import mcp.types as types
 
-# ----------------- MCP 工具定义区 -----------------
+# ========== 1. 初始化 MCP Server ==========
+server = Server("wenjing-hotel-mcp")
+
+# ========== 2. MCP 工具定义区 ==========
 
 @server.list_tools()
 async def handle_list_tools() -> list[types.Tool]:
@@ -61,6 +55,7 @@ async def handle_list_tools() -> list[types.Tool]:
         )
     ]
 
+
 @server.call_tool()
 async def handle_call_tool(name: str, arguments: dict | None) -> list[types.TextContent]:
     if name == "check_room_availability":
@@ -79,10 +74,10 @@ async def handle_call_tool(name: str, arguments: dict | None) -> list[types.Text
             "room_type": room_type,
             "details": result
         }, ensure_ascii=False))]
-        
+
     elif name == "get_nanjing_weather":
         return [types.TextContent(type="text", text="南京老门东明天小雨转阴，气温 15℃-20℃，适合在酒店明清庭院内喝茶，或带把伞漫步老门东青石板路。")]
-        
+
     elif name == "plan_travel_route":
         destination = arguments.get("destination", "")
         routes = {
@@ -91,36 +86,73 @@ async def handle_call_tool(name: str, arguments: dict | None) -> list[types.Text
             "中华门": "距离极近，就在老门东旁边，步行 5 分钟即可到达，强烈推荐夜游城墙。"
         }
         return [types.TextContent(type="text", text=routes.get(destination, f"已为您查询到前往 {destination} 的路线：建议打车前往，让前台为您呼叫专车。"))]
-        
+
     raise ValueError(f"Unknown tool: {name}")
 
 
-# ----------------- MCP SSE 传输层配置 -----------------
+# ========== 3. SSE 传输层配置 ==========
 
-# 配置 SSE 消息接收路径
 sse = SseServerTransport("/messages")
 
-from starlette.routing import Route
 
-async def handle_sse(scope, receive, send):
-    """建立 MCP SSE 长连接"""
-    async with sse.connect_sse(scope, receive, send) as streams:
-        await server.run(streams[0], streams[1], server.create_initialization_options())
+async def handle_sse(request: Request):
+    """
+    建立 MCP SSE 长连接。
+    关键：通过 request._send 获取原始 ASGI send callable，
+    而非 FastAPI 包装后的 request.send。
+    """
+    async with sse.connect_sse(
+        request.scope,
+        request.receive,
+        request._send,
+    ) as streams:
+        await server.run(
+            streams[0],
+            streams[1],
+            server.create_initialization_options(),
+        )
 
-async def handle_messages(scope, receive, send):
-    """处理来自 Dify 的 JSON-RPC 工具调用请求"""
-    await sse.handle_post_message(scope, receive, send)
 
-app.routes.append(Route("/sse", endpoint=handle_sse, methods=["GET"]))
-app.routes.append(Route("/messages", endpoint=handle_messages, methods=["POST"]))
+async def handle_messages(request: Request):
+    """处理来自 Dify/客户端的 JSON-RPC 工具调用请求"""
+    await sse.handle_post_message(
+        request.scope,
+        request.receive,
+        request._send,
+    )
 
-@app.get("/")
-async def root():
-    return {"message": "Wenjing Hotel MCP Server is running! Connect to /sse for MCP endpoints."}
 
-# ----------------- 启动入口 -----------------
+async def homepage(request: Request):
+    """健康检查端点"""
+    return JSONResponse({
+        "message": "Wenjing Hotel MCP Server is running! Connect to /sse for MCP endpoints."
+    })
+
+
+# ========== 4. 构建 Starlette 应用 ==========
+# 不使用 FastAPI，避免中间件栈对 SSE 流式响应的干扰
+
+app = Starlette(
+    debug=True,
+    routes=[
+        Route("/", homepage),
+        Route("/sse", handle_sse),
+        Route("/messages", handle_messages, methods=["POST"]),
+    ],
+    middleware=[
+        Middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+    ],
+)
+
+
+# ========== 5. 启动入口 ==========
 if __name__ == "__main__":
-    # 阿里云 FC 默认监听 9000 端口，Render 会自动注入 PORT 环境变量
-    import os
+    # 阿里云 FC 默认监听 9000 端口
     port = int(os.environ.get("PORT", 9000))
     uvicorn.run("app:app", host="0.0.0.0", port=port)
