@@ -120,7 +120,7 @@ async def root():
 
 # ----------------- 启动入口 -----------------
 if __name__ == "__main__":
-    # Render 会自动注入 PORT 环境变量，默认监听 0.0.0.0
+    # 阿里云 FC 默认监听 9000 端口，Render 会自动注入 PORT 环境变量
     import os
-    port = int(os.environ.get("PORT", 8000))
+    port = int(os.environ.get("PORT", 9000))
     uvicorn.run("app:app", host="0.0.0.0", port=port)
