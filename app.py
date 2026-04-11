@@ -100,16 +100,19 @@ async def handle_call_tool(name: str, arguments: dict | None) -> list[types.Text
 # 配置 SSE 消息接收路径
 sse = SseServerTransport("/messages")
 
-@app.get("/sse")
-async def handle_sse(request: Request):
+from starlette.routing import Route
+
+async def handle_sse(scope, receive, send):
     """建立 MCP SSE 长连接"""
-    async with sse.connect_sse(request.scope, request.receive, request.send) as streams:
+    async with sse.connect_sse(scope, receive, send) as streams:
         await server.run(streams[0], streams[1], server.create_initialization_options())
 
-@app.post("/messages")
-async def handle_messages(request: Request):
+async def handle_messages(scope, receive, send):
     """处理来自 Dify 的 JSON-RPC 工具调用请求"""
-    await sse.handle_post_message(request.scope, request.receive, request.send)
+    await sse.handle_post_message(scope, receive, send)
+
+app.routes.append(Route("/sse", endpoint=handle_sse, methods=["GET"]))
+app.routes.append(Route("/messages", endpoint=handle_messages, methods=["POST"]))
 
 @app.get("/")
 async def root():
