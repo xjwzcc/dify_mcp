@@ -44,13 +44,15 @@ async def handle_list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="plan_travel_route",
-            description="规划从酒店(老门东)出发到周边景点的交通路线",
+            description="规划两个地点之间的交通路线",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "destination": {"type": "string", "description": "目的地名称 (例如: 夫子庙, 南京博物院)"}
+                    "origin": {"type": "string", "description": "出发地名称 (例如: 南京老门东金陵文璟酒店)"},
+                    "destination": {"type": "string", "description": "目的地名称 (例如: 夫子庙, 南京博物院)"},
+                    "mode": {"type": "string", "description": "出行方式 (例如: 走路, 驾车, 公交, 骑行)", "default": "走路"}
                 },
-                "required": ["destination"]
+                "required": ["origin", "destination"]
             }
         )
     ]
@@ -79,13 +81,65 @@ async def handle_call_tool(name: str, arguments: dict | None) -> list[types.Text
         return [types.TextContent(type="text", text="南京老门东明天小雨转阴，气温 15℃-20℃，适合在酒店明清庭院内喝茶，或带把伞漫步老门东青石板路。")]
 
     elif name == "plan_travel_route":
+        import requests
+        origin = arguments.get("origin", "")
         destination = arguments.get("destination", "")
-        routes = {
-            "夫子庙": "距离酒店约1公里，建议步行前往，用时约15分钟，沿途可欣赏秦淮河夜景。",
-            "南京博物院": "距离较远，建议在武定门地铁站乘坐地铁3号线转2号线，全程约40分钟；打车约20分钟。",
-            "中华门": "距离极近，就在老门东旁边，步行 5 分钟即可到达，强烈推荐夜游城墙。"
-        }
-        return [types.TextContent(type="text", text=routes.get(destination, f"已为您查询到前往 {destination} 的路线：建议打车前往，让前台为您呼叫专车。"))]
+        mode = arguments.get("mode", "走路")
+        key = "9a5da29d0bd9a60ec2d58e01757e86f5"
+
+        def get_location(address):
+            url = f"https://restapi.amap.com/v3/geocode/geo?address={address}&city=南京&key={key}"
+            try:
+                res = requests.get(url, timeout=5).json()
+                if res.get('status') == '1' and res.get('geocodes'):
+                    return res['geocodes'][0]['location']
+            except Exception:
+                pass
+            return None
+
+        origin_loc = get_location(origin)
+        dest_loc = get_location(destination)
+
+        if not origin_loc or not dest_loc:
+            return [types.TextContent(type="text", text=f"无法获取 {origin} 或 {destination} 的位置信息，请尝试其他地址。")]
+
+        try:
+            if mode == "驾车":
+                url = f"https://restapi.amap.com/v3/direction/driving?origin={origin_loc}&destination={dest_loc}&key={key}"
+                res = requests.get(url, timeout=5).json()
+                if res.get('status') == '1' and res.get('route', {}).get('paths'):
+                    path = res['route']['paths'][0]
+                    distance = int(path['distance'])
+                    duration = int(path['duration']) // 60
+                    return [types.TextContent(type="text", text=f"已为您查询到前往 {destination} 的路线：建议驾车前往，距离约 {distance} 米，预计用时 {duration} 分钟。")]
+            elif mode == "公交":
+                url = f"https://restapi.amap.com/v3/direction/transit/integrated?origin={origin_loc}&destination={dest_loc}&city=南京&key={key}"
+                res = requests.get(url, timeout=5).json()
+                if res.get('status') == '1' and res.get('route', {}).get('transits'):
+                    path = res['route']['transits'][0]
+                    distance = int(path['distance'])
+                    duration = int(path['duration']) // 60
+                    return [types.TextContent(type="text", text=f"已为您查询到前往 {destination} 的路线：建议乘坐公共交通，距离约 {distance} 米，预计用时 {duration} 分钟。")]
+            elif mode == "骑行":
+                url = f"https://restapi.amap.com/v4/direction/bicycling?origin={origin_loc}&destination={dest_loc}&key={key}"
+                res = requests.get(url, timeout=5).json()
+                if res.get('errcode') == 0 and res.get('data', {}).get('paths'):
+                    path = res['data']['paths'][0]
+                    distance = int(path['distance'])
+                    duration = int(path['duration']) // 60
+                    return [types.TextContent(type="text", text=f"已为您查询到前往 {destination} 的路线：建议骑行前往，距离约 {distance} 米，预计用时 {duration} 分钟。")]
+            else:  # 默认走路
+                url = f"https://restapi.amap.com/v3/direction/walking?origin={origin_loc}&destination={dest_loc}&key={key}"
+                res = requests.get(url, timeout=5).json()
+                if res.get('status') == '1' and res.get('route', {}).get('paths'):
+                    path = res['route']['paths'][0]
+                    distance = int(path['distance'])
+                    duration = int(path['duration']) // 60
+                    return [types.TextContent(type="text", text=f"已为您查询到前往 {destination} 的路线：建议步行前往，距离约 {distance} 米，预计用时 {duration} 分钟。")]
+        except Exception as e:
+            return [types.TextContent(type="text", text=f"查询前往 {destination} 的路线时发生错误：{str(e)}")]
+
+        return [types.TextContent(type="text", text=f"未能找到合适的 {mode} 路线前往 {destination}。")]
 
     raise ValueError(f"Unknown tool: {name}")
 
