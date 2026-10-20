@@ -6,10 +6,10 @@ const {seed,evaluate}=require('./domain.cjs');
 const PORT=Number(process.env.PORT||8787),HOST=process.env.HOST||'0.0.0.0';
 const dataDir=process.env.DATA_DIR||path.join(__dirname,'data');fs.mkdirSync(dataDir,{recursive:true});
 const configPath=path.join(dataDir,'config.json');
-if(!fs.existsSync(configPath))fs.writeFileSync(configPath,JSON.stringify({teacherPassword:process.env.TEACHER_PASSWORD||'Hotel2026!',classCode:process.env.CLASS_CODE||'HR2026'},null,2));
+if(!fs.existsSync(configPath))fs.writeFileSync(configPath,JSON.stringify({teacherPassword:process.env.TEACHER_PASSWORD||crypto.randomBytes(18).toString('base64url'),classCode:process.env.CLASS_CODE||crypto.randomBytes(9).toString('base64url')},null,2));
 const config=JSON.parse(fs.readFileSync(configPath,'utf8'));
 const sql=new DatabaseSync(path.join(dataDir,'hotel.sqlite'));
-sql.exec(`PRAGMA journal_mode=WAL;PRAGMA synchronous=FULL;PRAGMA busy_timeout=5000;
+sql.exec(`PRAGMA journal_mode=${process.env.SQLITE_JOURNAL_MODE==='DELETE'?'DELETE':'WAL'};PRAGMA synchronous=FULL;PRAGMA busy_timeout=5000;
  CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,name TEXT NOT NULL,role TEXT NOT NULL,password TEXT NOT NULL,state TEXT,version INTEGER NOT NULL DEFAULT 1,updated TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY,user_id TEXT NOT NULL,expires INTEGER NOT NULL);
  CREATE TABLE IF NOT EXISTS logs(seq INTEGER PRIMARY KEY AUTOINCREMENT,op_id TEXT UNIQUE,user_id TEXT NOT NULL,name TEXT NOT NULL,time TEXT NOT NULL,action TEXT NOT NULL,detail TEXT NOT NULL);
@@ -50,12 +50,12 @@ function auth(req){const cookie=String(req.headers.cookie||'').split(';').map(s=
 const classes=require('./classes.cjs')({sql,body,json,error,audit,changed,config});
 function snapshot(user){const u=sql.prepare('SELECT * FROM users WHERE id=?').get(user.id);return{session:{id:u.id,name:u.name,teacher:u.role==='teacher',classId:u.class_id,access:classes.access(u)},student:u.role==='student'?{id:u.id,name:u.name,state:JSON.parse(u.state),version:u.version,updated:u.updated}:null,assignments:sql.prepare('SELECT * FROM assignments ORDER BY rowid').all()};}
 function requireTeacher(u){if(u.role!=='teacher')throw error(403,'仅教师可执行此操作');}
-function cookie(value,secure=false){return 'hotel_session='+value+'; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000'+(secure?'; Secure':'');}
+function cookie(value,secure=false){return 'hotel_session='+value+'; HttpOnly; SameSite=Strict; Path=/hotel/; Max-Age=2592000'+(secure?'; Secure':'');}
 const learningRoute=require('./learning.cjs')({sql,body,json,error,audit,changed,evaluate,now,classes});
 const server=http.createServer(async(req,res)=>{
  res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','same-origin');res.setHeader('X-Frame-Options','DENY');
  try{
- const url=new URL(req.url,'http://localhost'),route=url.pathname;
+ const url=new URL(req.url,'http://localhost'),route=url.pathname.replace(/^\/hotel(?=\/|$)/,'')||'/';
  if(req.method!=='GET'&&req.headers.origin&&new URL(req.headers.origin).host!==req.headers.host)throw error(403,'拒绝跨站请求');
  if(route==='/api/classes/public'&&req.method==='GET')return json(res,200,{classes:classes.all().map(c=>({id:c.id,name:c.name,entry:c.entry,enrollment:c.enrollment,stage:c.stage}))});
  if(route==='/api/health')return json(res,200,{ok:true,product:'hotel-hr-v2',storage:'SQLite',time:now()});
@@ -77,7 +77,7 @@ const server=http.createServer(async(req,res)=>{
    if(!['/api/session','/api/logout','/api/events'].includes(route))classes.requireAccess(u);
    if(await learningRoute(req,res,route,u))return;
    if(route==='/api/session'&&req.method==='GET')return json(res,200,snapshot(u));
-   if(route==='/api/logout'&&req.method==='POST'){sql.prepare('DELETE FROM sessions WHERE token=?').run(u.token);return json(res,200,{ok:true},{'Set-Cookie':'hotel_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0'});}
+   if(route==='/api/logout'&&req.method==='POST'){sql.prepare('DELETE FROM sessions WHERE token=?').run(u.token);return json(res,200,{ok:true},{'Set-Cookie':'hotel_session=; Path=/hotel/; HttpOnly; SameSite=Strict; Max-Age=0'});}
    if(route==='/api/events'&&req.method==='GET'){
      res.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-cache','Connection':'keep-alive','X-Accel-Buffering':'no'});res.write('data: '+JSON.stringify({connected:true})+'\n\n');const c={id:u.id,role:u.role,res};clients.add(c);
      const timer=setInterval(()=>{if(!sql.prepare('SELECT token FROM sessions WHERE token=? AND expires>?').get(u.token,Date.now()))res.end();else res.write(': heartbeat\n\n');},20000);req.on('close',()=>{clearInterval(timer);clients.delete(c);});return;
@@ -114,7 +114,7 @@ const server=http.createServer(async(req,res)=>{
    throw error(404,'接口不存在');
  }
  if(req.method!=='GET')throw error(405,'请求方法无效');
- const files={'/':'index.html','/index.html':'index.html','/app.js':'app.js','/online.js':'online.js','/teaching.js':'teaching.js','/classroom.js':'classroom.js','/mobile.js':'mobile.js','/mobile.css':'mobile.css'};
+ const files={'/teacher':'index.html','/student':'index.html','/':'index.html','/index.html':'index.html','/app.js':'app.js','/online.js':'online.js','/teaching.js':'teaching.js','/classroom.js':'classroom.js','/mobile.js':'mobile.js','/mobile.css':'mobile.css'};
  if(!files[route])throw error(404,'页面不存在');const filename=path.join(__dirname,'public',files[route]);res.writeHead(200,{'Content-Type':route.endsWith('.js')?'application/javascript; charset=utf-8':route.endsWith('.css')?'text/css; charset=utf-8':'text/html; charset=utf-8','Cache-Control':'no-cache'});fs.createReadStream(filename).pipe(res);
  }catch(e){if(!res.headersSent)json(res,e.status||500,{error:e.status?e.message:'服务器暂时无法处理请求，请保留页面稍后重试'});else res.end();if(!e.status)console.error(e);}
 });

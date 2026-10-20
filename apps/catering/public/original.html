@@ -3011,7 +3011,7 @@ function importData(ev){
 }
 
 /* ================= 扫码互动：桌码 / 订单码 ================= */
-var SHARE_BASE = location.origin + '/customer.html';
+var SHARE_BASE = location.origin + '/catering/customer.html';
 var B64C = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 function utf8Bytes(str){
   var out = [], i, c;
@@ -3715,5 +3715,5 @@ window.addEventListener('storage', function(ev){
 /* 每 30 秒刷新一次（更新"几分钟前"） */
 setInterval(function(){ if(view==='b'&&subView==='kds') render(); }, 30000);
 </script>
-<script src="/native-bridge.js"></script></body>
+<script src="/catering/native-bridge.js"></script></body>
 </html>

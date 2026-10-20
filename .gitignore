@@ -20,3 +20,12 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+
+# Teaching runtime data and deployment artifacts
+data/
+**/data/
+*.sqlite*
+bootstrap.json
+bin/
+*.zip
+.env

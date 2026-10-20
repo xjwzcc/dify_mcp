@@ -29,5 +29,5 @@ new MutationObserver(()=>{if(phoneEnhanceQueued)return;phoneEnhanceQueued=true;r
 document.addEventListener('keydown',e=>{if(e.key==='Escape')document.body.classList.remove('menu');});
 // 专用入口不会误入另一身份的工作台；仍须经服务器验证账号密码。
 const sharedInit=init;
-init=async function(){const role=new URLSearchParams(location.search).get('role');if(!['teacher','student'].includes(role))return sharedInit();try{const r=await api('/api/session');if(Boolean(r.session.teacher)!==(role==='teacher')){renderLogin();return;}await enter(r);}catch(e){renderLogin();if(e.status!==401)toast(e.message);}};
+init=async function(){const role=new URLSearchParams(location.search).get('role');if(!['teacher','student'].includes(role))return sharedInit();try{const r=await api('/hotel/api/session');if(Boolean(r.session.teacher)!==(role==='teacher')){renderLogin();return;}await enter(r);}catch(e){renderLogin();if(e.status!==401)toast(e.message);}};
 init();

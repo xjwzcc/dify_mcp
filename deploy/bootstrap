@@ -1,0 +1,12 @@
+#!/bin/bash
+set -euo pipefail
+cd /code
+export NODE_ENV=production
+export ENABLE_MCP=1
+export REQUIRE_NAS=1
+export NAS_MOUNT="${NAS_MOUNT:-/mnt/teaching}"
+export DATA_DIR="${DATA_DIR:-/mnt/teaching/data}"
+# WAL requires local shared memory. NFS uses rollback journals instead.
+export SQLITE_JOURNAL_MODE=DELETE
+export PORT=9000
+exec /code/bin/node server.cjs
