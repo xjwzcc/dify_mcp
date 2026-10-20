@@ -6,12 +6,14 @@ const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 
 const port = Number(process.env.PORT || 9000);
-const dataDir = path.resolve(process.env.DATA_DIR || path.join(__dirname, 'data'));
+const backend = process.env.STORAGE_BACKEND || 'nas';
+if (!['nas', 'feishu'].includes(backend)) throw Error('Invalid STORAGE_BACKEND');
+const dataDir = path.resolve(process.env.DATA_DIR || (backend === 'feishu' ? '/tmp/teaching-cache' : path.join(__dirname, 'data')));
 const production = process.env.NODE_ENV === 'production';
-if (production && (!process.env.DATA_DIR || dataDir.startsWith('/tmp/') || dataDir.startsWith('/code/'))) {
+if (backend === 'nas' && production && (!process.env.DATA_DIR || dataDir.startsWith('/tmp/') || dataDir.startsWith('/code/'))) {
   throw new Error('Production requires DATA_DIR on persistent storage, e.g. /mnt/teaching/data');
 }
-if (production && process.env.REQUIRE_NAS === '1') {
+if (backend === 'nas' && production && process.env.REQUIRE_NAS === '1') {
   // Refuse to silently create a local directory when an FC NAS mount is missing.
   const mount = process.env.NAS_MOUNT || '/mnt/teaching';
   if (!fs.existsSync(mount) || Number(fs.statfsSync(mount).type) !== 0x6969) {
@@ -20,14 +22,23 @@ if (production && process.env.REQUIRE_NAS === '1') {
 }
 fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
 const configFile = path.join(dataDir, 'bootstrap.json');
-if (!fs.existsSync(configFile)) {
+if (backend === 'feishu') {
+  for (const key of ['TEACHER_PASSWORD', 'CATERING_CLASS_CODE', 'HOTEL_CLASS_CODE'])
+    if (!process.env[key] || process.env[key].length < 8) throw Error(key + ' must be set to a stable value of at least 8 characters');
+  if (process.env.FEISHU_CATERING_TABLE_ID === process.env.FEISHU_HOTEL_TABLE_ID)
+    throw Error('The two applications require separate Feishu tables');
+} else if (!fs.existsSync(configFile)) {
   fs.writeFileSync(configFile, JSON.stringify({
     teacherPassword: process.env.TEACHER_PASSWORD || crypto.randomBytes(18).toString('base64url'),
     cateringCode: process.env.CATERING_CLASS_CODE || crypto.randomBytes(6).toString('base64url'),
     hotelCode: process.env.HOTEL_CLASS_CODE || crypto.randomBytes(6).toString('base64url')
   }, null, 2), { flag: 'wx', mode: 0o600 });
 }
-const config = JSON.parse(fs.readFileSync(configFile, 'utf8'));
+const config = backend === 'feishu' ? {
+  teacherPassword: process.env.TEACHER_PASSWORD,
+  cateringCode: process.env.CATERING_CLASS_CODE,
+  hotelCode: process.env.HOTEL_CLASS_CODE
+} : JSON.parse(fs.readFileSync(configFile, 'utf8'));
 const services = [
   { name: 'catering', port: Number(process.env.CATERING_PORT || 9101), code: config.cateringCode },
   { name: 'hotel', port: Number(process.env.HOTEL_PORT || 9102), code: config.hotelCode }
@@ -97,7 +108,7 @@ const server = http.createServer(async (req, res) => {
         checks.push(response.ok);
       } catch { checks.push(false); }
     }
-    return json(res, checks.every(Boolean) ? 200 : 503, { ok: checks.every(Boolean), services: checks });
+    return json(res, checks.every(Boolean) ? 200 : 503, { ok: checks.every(Boolean), storage: backend, services: checks });
   }
   if (url.pathname === '/' && ['GET', 'HEAD'].includes(req.method)) {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });

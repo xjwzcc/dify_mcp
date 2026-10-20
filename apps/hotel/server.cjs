@@ -1,14 +1,17 @@
 'use strict';
 // 无第三方依赖：Node 24内置HTTP、SQLite与密码哈希；事务落盘后才反馈保存成功。
 const http=require('node:http'),fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto'),os=require('node:os');
-const {DatabaseSync,backup}=require('node:sqlite');
+const {backup}=require('node:sqlite');
+const {openDatabase}=require('../../storage/database.cjs');
+(async()=>{
 const {seed,evaluate}=require('./domain.cjs');
 const PORT=Number(process.env.PORT||8787),HOST=process.env.HOST||'0.0.0.0';
 const dataDir=process.env.DATA_DIR||path.join(__dirname,'data');fs.mkdirSync(dataDir,{recursive:true});
+const storage=await openDatabase('hotel',path.join(dataDir,'hotel.sqlite'));
 const configPath=path.join(dataDir,'config.json');
-if(!fs.existsSync(configPath))fs.writeFileSync(configPath,JSON.stringify({teacherPassword:process.env.TEACHER_PASSWORD||crypto.randomBytes(18).toString('base64url'),classCode:process.env.CLASS_CODE||crypto.randomBytes(9).toString('base64url')},null,2));
-const config=JSON.parse(fs.readFileSync(configPath,'utf8'));
-const sql=new DatabaseSync(path.join(dataDir,'hotel.sqlite'));
+if(storage.mode!=='feishu'&&!fs.existsSync(configPath))fs.writeFileSync(configPath,JSON.stringify({teacherPassword:process.env.TEACHER_PASSWORD||crypto.randomBytes(18).toString('base64url'),classCode:process.env.CLASS_CODE||crypto.randomBytes(9).toString('base64url')},null,2));
+const config=storage.mode==='feishu'?{teacherPassword:process.env.TEACHER_PASSWORD,classCode:process.env.CLASS_CODE}:JSON.parse(fs.readFileSync(configPath,'utf8'));
+const sql=storage.db;
 sql.exec(`PRAGMA journal_mode=${process.env.SQLITE_JOURNAL_MODE==='DELETE'?'DELETE':'WAL'};PRAGMA synchronous=FULL;PRAGMA busy_timeout=5000;
  CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,name TEXT NOT NULL,role TEXT NOT NULL,password TEXT NOT NULL,state TEXT,version INTEGER NOT NULL DEFAULT 1,updated TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY,user_id TEXT NOT NULL,expires INTEGER NOT NULL);
@@ -22,8 +25,8 @@ sql.prepare('INSERT OR IGNORE INTO users(id,name,role,password,state,updated) VA
 sql.prepare('INSERT OR IGNORE INTO assignments VALUES(?,?,?)').run('A0','完成四个业务情境；每次操作将自动同步到教师端。','2026-10-20');
 const clients=new Set(),rates=new Map();
 const error=(status,message)=>Object.assign(new Error(message),{status});
-function transaction(fn){sql.exec('BEGIN IMMEDIATE');try{const result=fn();sql.exec('COMMIT');return result;}catch(e){sql.exec('ROLLBACK');throw e;}}
-function changed(userId){sql.exec("UPDATE metadata SET value=value+1 WHERE key='revision'");const revision=sql.prepare("SELECT value FROM metadata WHERE key='revision'").get().value;for(const c of clients){if(c.role==='teacher'||c.id===userId||userId==='assignments')c.res.write('data: '+JSON.stringify({revision,userId})+'\n\n');}}
+function transaction(fn){sql.exec('SAVEPOINT business');try{const result=fn();sql.exec('RELEASE business');return result;}catch(e){sql.exec('ROLLBACK TO business; RELEASE business');throw e;}}
+function changed(userId){sql.exec("UPDATE metadata SET value=value+1 WHERE key='revision'");const revision=sql.prepare("SELECT value FROM metadata WHERE key='revision'").get().value;storage.afterCommit(()=>{for(const c of clients){if(c.role==='teacher'||c.id===userId||userId==='assignments')c.res.write('data: '+JSON.stringify({revision,userId})+'\n\n');}})}
 function audit(user,action,detail,id=crypto.randomUUID()){sql.prepare('INSERT OR IGNORE INTO logs(op_id,user_id,name,time,action,detail) VALUES(?,?,?,?,?,?)').run(id,user.id,user.name,now(),action,String(detail).slice(0,10000));}
 function cleanJSON(o,depth=0){if(depth>30)throw error(400,'数据嵌套过深');if(o&&typeof o==='object'){for(const k of Object.keys(o)){if(['__proto__','constructor','prototype'].includes(k))throw error(400,'非法数据键');cleanJSON(o[k],depth+1);}}}
 function validateState(s){
@@ -52,10 +55,11 @@ function snapshot(user){const u=sql.prepare('SELECT * FROM users WHERE id=?').ge
 function requireTeacher(u){if(u.role!=='teacher')throw error(403,'仅教师可执行此操作');}
 function cookie(value,secure=false){return 'hotel_session='+value+'; HttpOnly; SameSite=Strict; Path=/hotel/; Max-Age=2592000'+(secure?'; Secure':'');}
 const learningRoute=require('./learning.cjs')({sql,body,json,error,audit,changed,evaluate,now,classes});
-const server=http.createServer(async(req,res)=>{
+const server=http.createServer(storage.wrap(async(req,res)=>{
  res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','same-origin');res.setHeader('X-Frame-Options','DENY');
  try{
  const url=new URL(req.url,'http://localhost'),route=url.pathname.replace(/^\/hotel(?=\/|$)/,'')||'/';
+ if(!route.startsWith('/api/')&&!['GET','HEAD'].includes(req.method))throw error(405,'页面仅支持读取');
  if(req.method!=='GET'&&req.headers.origin&&new URL(req.headers.origin).host!==req.headers.host)throw error(403,'拒绝跨站请求');
  if(route==='/api/classes/public'&&req.method==='GET')return json(res,200,{classes:classes.all().map(c=>({id:c.id,name:c.name,entry:c.entry,enrollment:c.enrollment,stage:c.stage}))});
  if(route==='/api/health')return json(res,200,{ok:true,product:'hotel-hr-v2',storage:'SQLite',time:now()});
@@ -80,7 +84,7 @@ const server=http.createServer(async(req,res)=>{
    if(route==='/api/logout'&&req.method==='POST'){sql.prepare('DELETE FROM sessions WHERE token=?').run(u.token);return json(res,200,{ok:true},{'Set-Cookie':'hotel_session=; Path=/hotel/; HttpOnly; SameSite=Strict; Max-Age=0'});}
    if(route==='/api/events'&&req.method==='GET'){
      res.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-cache','Connection':'keep-alive','X-Accel-Buffering':'no'});res.write('data: '+JSON.stringify({connected:true})+'\n\n');const c={id:u.id,role:u.role,res};clients.add(c);
-     const timer=setInterval(()=>{if(!sql.prepare('SELECT token FROM sessions WHERE token=? AND expires>?').get(u.token,Date.now()))res.end();else res.write(': heartbeat\n\n');},20000);req.on('close',()=>{clearInterval(timer);clients.delete(c);});return;
+     const timer=setInterval(()=>{if(storage.busy)return;if(!storage.healthy){res.end();return}if(!sql.prepare('SELECT token FROM sessions WHERE token=? AND expires>?').get(u.token,Date.now()))res.end();else res.write(': heartbeat\n\n');},20000);req.on('close',()=>{clearInterval(timer);clients.delete(c);});return;
    }
    if(route==='/api/state'&&req.method==='PUT'){
      if(u.role!=='student')throw error(403,'教师不能覆盖学生业务数据');const b=await body(req);if(b.studentId!==u.id)throw error(409,'浏览器已切换账号，已阻止把本页数据写入其他学生档案');
@@ -117,7 +121,10 @@ const server=http.createServer(async(req,res)=>{
  const files={'/teacher':'index.html','/student':'index.html','/':'index.html','/index.html':'index.html','/app.js':'app.js','/online.js':'online.js','/teaching.js':'teaching.js','/classroom.js':'classroom.js','/mobile.js':'mobile.js','/mobile.css':'mobile.css'};
  if(!files[route])throw error(404,'页面不存在');const filename=path.join(__dirname,'public',files[route]);res.writeHead(200,{'Content-Type':route.endsWith('.js')?'application/javascript; charset=utf-8':route.endsWith('.css')?'text/css; charset=utf-8':'text/html; charset=utf-8','Cache-Control':'no-cache'});fs.createReadStream(filename).pipe(res);
  }catch(e){if(!res.headersSent)json(res,e.status||500,{error:e.status?e.message:'服务器暂时无法处理请求，请保留页面稍后重试'});else res.end();if(!e.status)console.error(e);}
-});
-const housekeeping=setInterval(()=>{sql.prepare('DELETE FROM sessions WHERE expires<?').run(Date.now());for(const [k,v] of rates)if(Date.now()-v.at>60000)rates.delete(k);},60000);housekeeping.unref();
+}));
+const housekeeping=setInterval(()=>{if(storage.mode!=='feishu')sql.prepare('DELETE FROM sessions WHERE expires<?').run(Date.now());for(const [k,v] of rates)if(Date.now()-v.at>60000)rates.delete(k);},60000);housekeeping.unref();
+await storage.ready();
 server.listen(PORT,HOST,()=>{console.log('Hotel HR online ready: http://localhost:'+PORT);for(const arr of Object.values(os.networkInterfaces()))for(const a of arr)if(a.family==='IPv4'&&!a.internal)console.log('LAN URL: http://'+a.address+':'+PORT);console.log('Database: '+path.join(dataDir,'hotel.sqlite'));});
 function shutdown(){for(const c of clients)c.res.end();server.close(()=>{sql.close();process.exit(0);});setTimeout(()=>process.exit(0),3000).unref();}process.on('SIGTERM',shutdown);process.on('SIGINT',shutdown);
+
+})().catch(error=>{console.error('Hotel startup failed:',error.message);process.exit(1)});

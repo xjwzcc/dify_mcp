@@ -1,18 +1,20 @@
 'use strict';
 const http=require('node:http'),fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
-const {DatabaseSync}=require('node:sqlite');
-const dir=process.env.DATA_DIR||path.join(__dirname,'data');fs.mkdirSync(dir,{recursive:true});const db=new DatabaseSync(path.join(dir,'emenu.sqlite'));
+const {openDatabase}=require('../../storage/database.cjs');
+(async()=>{
+const dir=process.env.DATA_DIR||path.join(__dirname,'data');fs.mkdirSync(dir,{recursive:true});const storage=await openDatabase('catering',path.join(dir,'emenu.sqlite'));const db=storage.db;
 db.exec(`PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000; PRAGMA journal_mode=${process.env.SQLITE_JOURNAL_MODE==='DELETE'?'DELETE':'WAL'}; CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,name TEXT,role TEXT,hash TEXT,state TEXT); CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY,id TEXT); CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY,record TEXT); CREATE TABLE IF NOT EXISTS submissions(id TEXT PRIMARY KEY,record TEXT); CREATE TABLE IF NOT EXISTS messages(id TEXT PRIMARY KEY,record TEXT);`);
 if(!db.prepare('PRAGMA table_info(sessions)').all().some(c=>c.name==='expires'))db.exec('ALTER TABLE sessions ADD COLUMN expires INTEGER NOT NULL DEFAULT 0');
 const hash=p=>{const s=crypto.randomBytes(16).toString('hex');return s+':'+crypto.scryptSync(p,s,32).toString('hex')},check=(p,h)=>{const [s,k]=h.split(':');return crypto.timingSafeEqual(Buffer.from(k,'hex'),crypto.scryptSync(p,s,32))};
-const cfg=path.join(dir,'login.json');if(!fs.existsSync(cfg))fs.writeFileSync(cfg,JSON.stringify({teacherPassword:process.env.TEACHER_PASSWORD||crypto.randomBytes(18).toString('base64url'),classCode:process.env.CLASS_CODE||crypto.randomBytes(9).toString('base64url')},null,2));const config=JSON.parse(fs.readFileSync(cfg));
+const cfg=path.join(dir,'login.json');if(storage.mode!=='feishu'&&!fs.existsSync(cfg))fs.writeFileSync(cfg,JSON.stringify({teacherPassword:process.env.TEACHER_PASSWORD||crypto.randomBytes(18).toString('base64url'),classCode:process.env.CLASS_CODE||crypto.randomBytes(9).toString('base64url')},null,2));const config=storage.mode==='feishu'?{teacherPassword:process.env.TEACHER_PASSWORD,classCode:process.env.CLASS_CODE}:JSON.parse(fs.readFileSync(cfg));
 db.prepare('INSERT OR IGNORE INTO users VALUES(?,?,?,?,?)').run('teacher','授课教师','teacher',hash(config.teacherPassword),'{}');
 const initial=()=>{const original=require('./native-seed.cjs')();return{version:0,restaurant:'吴山苑餐厅',original,menu:original.menu.map(d=>({id:d.id,name:d.name,category:d.cat,price:d.price,cost:0,stock:0,description:d.desc,on:true})),orders:[],logs:[]}};
 for(const [id,title,steps] of [['T1','电子菜单设计与规格定价','完善至少5道菜的信息、分类、图片与多规格定价；核对价格差异并说明菜单设计依据。'],['T2','顾客点餐与订单核对','为A01创建订单，选择规格、口味和整单备注，核对菜品与数量；用订单码完成扫码订单收入。'],['T3','后厨协同与出餐','接单、制作、出餐，处理缺货或特殊要求，说明前后场协同方法。'],['T4','结账与经营复盘','完成模拟收款，核对已收与待收金额，分析销量结构与经营改进措施。']])db.prepare('INSERT OR IGNORE INTO tasks VALUES(?,?)').run(id,JSON.stringify({id,title,steps,deliverable:'提交操作证据、结果分析和改进反思（至少30字）',rubric:'操作准确40分、服务与风险意识30分、分析反思30分',published:true,maxScore:100}));
 const rows=t=>db.prepare('SELECT record FROM '+t).all().map(x=>JSON.parse(x.record));const put=(t,id,r)=>db.prepare('INSERT OR REPLACE INTO '+t+' VALUES(?,?)').run(id,JSON.stringify(r));
 const send=(r,s,v,h={})=>{r.writeHead(s,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...h});r.end(JSON.stringify(v))};const fail=(m,status=400)=>{throw Object.assign(Error(m),{status})};
-const housekeeping=setInterval(()=>db.prepare('DELETE FROM sessions WHERE expires<?').run(Date.now()),60000);housekeeping.unref();
-const server=http.createServer(async(req,res)=>{try{res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('X-Frame-Options','SAMEORIGIN');const url=new URL(req.url,'http://localhost');const route=url.pathname.replace(/^\/catering(?=\/|$)/,'')||'/';
+const housekeeping=setInterval(()=>{if(storage.mode!=='feishu')db.prepare('DELETE FROM sessions WHERE expires<?').run(Date.now())},60000);housekeeping.unref();
+const server=http.createServer(storage.wrap(async(req,res)=>{try{res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('X-Frame-Options','SAMEORIGIN');const url=new URL(req.url,'http://localhost');const route=url.pathname.replace(/^\/catering(?=\/|$)/,'')||'/';
+if(!route.startsWith('/api/')&&!['GET','HEAD'].includes(req.method))fail('页面仅支持读取',405);
 if(req.method!=='GET'&&req.headers.origin&&new URL(req.headers.origin).host!==req.headers.host)fail('拒绝跨站请求',403);
 let b={};if(req.method==='POST'){let s='';for await(const c of req){s+=c;if(s.length>16000000)fail('数据过大')}b=JSON.parse(s||'{}')}
 if(route==='/api/health'&&req.method==='GET')return send(res,200,{ok:true,product:'catering'});
@@ -27,6 +29,8 @@ if(route==='/api/submit'){if(u.role!=='student')fail('仅学生可提交');const
 if(route==='/api/review'){teacher();const s=rows('submissions').find(s=>s.id===b.id);if(!s)fail('提交不存在');if(!Number.isFinite(b.score)||b.score<0||b.score>100||!['已评价','退回修改'].includes(b.status)||!b.feedback?.trim())fail('请输入0—100分和反馈');put('submissions',s.id,{...s,score:b.score,feedback:b.feedback,status:b.status});return send(res,200,{ok:true})}
 if(route==='/api/message'){const target=u.role==='teacher'?b.target:u.id;if(target!=='all'&&!db.prepare("SELECT id FROM users WHERE id=? AND role='student'").get(target))fail('学生不存在');if(!b.content||b.content.trim().length<5)fail('留言至少5字');const id=crypto.randomUUID();put('messages',id,{id,target,name:u.name,role:u.role,content:b.content.slice(0,2000),time:new Date().toISOString()});return send(res,200,{ok:true})}fail('接口不存在',404)}
 if(route==='/original.html'){const token=(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('emenu_source_session='))?.slice(21);if(!db.prepare('SELECT id FROM sessions WHERE token=? AND expires>?').get(token||'',Date.now()))fail('请先登录',401);}const files={'/teacher':'index.html','/student':'index.html','/original.html':'original.html','/customer.html':'original.html','/native-bridge.js':'native-bridge.js','/':'index.html','/app.js':'app.js','/style.css':'style.css'};if(!files[route])fail('页面不存在',404);res.writeHead(200,{'Content-Type':route.endsWith('.js')?'text/javascript; charset=utf-8':route.endsWith('.css')?'text/css; charset=utf-8':'text/html; charset=utf-8'});res.end(fs.readFileSync(path.join(__dirname,'public',files[route])));
-}catch(e){send(res,e.status||400,{error:e.message})}});server.listen(Number(process.env.PORT||8791),process.env.HOST||'0.0.0.0',()=>console.log('电子菜单教学系统 http://localhost:'+(process.env.PORT||8791)));
+}catch(e){send(res,e.status||400,{error:e.message})}}));await storage.ready();server.listen(Number(process.env.PORT||8791),process.env.HOST||'0.0.0.0',()=>console.log('电子菜单教学系统 http://localhost:'+(process.env.PORT||8791)));
 
 function shutdown(){server.close(()=>{db.close();process.exit(0)});setTimeout(()=>process.exit(0),3000).unref()}process.on('SIGTERM',shutdown);process.on('SIGINT',shutdown);
+
+})().catch(error=>{console.error('Catering startup failed:',error.message);process.exit(1)});

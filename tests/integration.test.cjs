@@ -10,11 +10,13 @@ const { DatabaseSync } = require('node:sqlite');
 const root = path.resolve(__dirname, '..');
 const data = fs.mkdtempSync(path.join(os.tmpdir(), 'teaching-integration-'));
 let child, output = '';
+const backend = process.env.TEST_STORAGE_BACKEND || 'nas';
+let mock;
 const base = 'http://127.0.0.1:19970';
 async function start() {
   child = spawn(process.execPath, ['server.cjs'], {
     cwd: root, stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, NODE_ENV: 'test', ENABLE_MCP: '0', DATA_DIR: data,
+    env: { ...process.env, STORAGE_BACKEND: backend, ...mock?.env, NODE_ENV: 'test', ENABLE_MCP: '0', DATA_DIR: data,
       PORT: '19970', CATERING_PORT: '19971', HOTEL_PORT: '19972', HOST: '127.0.0.1',
       TEACHER_PASSWORD: 'IntegrationTeacher2026!', CATERING_CLASS_CODE: 'TESTMENU',
       HOTEL_CLASS_CODE: 'TESTHOTEL', SQLITE_JOURNAL_MODE: 'DELETE', SECURE_COOKIE: '1' }
@@ -43,8 +45,9 @@ async function call(route, { data: body, cookie, method, origin } = {}) {
   return { status: response.status, body: response.headers.get('content-type')?.includes('application/json') ? JSON.parse(text) : text,
     cookie: response.headers.get('set-cookie')?.split(';')[0], headers: response.headers };
 }
-test('merged gateway, role separation and durable classroom workflows', { timeout: 45000 }, async t => {
-  t.after(async () => { await stop(); fs.rmSync(data, { recursive: true, force: true }); });
+test('merged gateway, role separation and durable classroom workflows', { timeout: 120000 }, async t => {
+  if (backend === 'feishu') mock = await require('./helpers/feishu-mock.cjs').createMock();
+  t.after(async () => { await stop(); await mock?.close(); fs.rmSync(data, { recursive: true, force: true }); });
   await start();
   let ct, cs, cb, ht, hs;
   await t.test('portal, role entries, assets, iframe and route isolation', async () => {
@@ -55,6 +58,8 @@ test('merged gateway, role separation and durable classroom workflows', { timeou
     assert.match((await call('/hotel/teacher')).body, /src="\/hotel\/online.js"/);
     assert.match((await call('/catering/student')).body, /src="\/catering\/app.js"/);
     assert.equal((await call('/api/session')).status, 404);
+    for (const prefix of ['catering', 'hotel'])
+      assert.equal((await call(`/${prefix}/teacher`, { data: {} })).status, 405);
     assert.equal((await call('/catering/original.html')).status, 401);
     for (const route of ['/data/bootstrap.json', '/catering/data/login.json', '/hotel/data/config.json', '/apps/hotel/server.cjs'])
       assert.equal((await call(route)).status, 404, route);
@@ -111,13 +116,53 @@ test('merged gateway, role separation and durable classroom workflows', { timeou
     assert.match(Buffer.from((await reader.read()).value).toString(), /assignments/);
     await reader.cancel();
   });
+  if (backend === 'feishu') await t.test('ten classes and ten concurrent student saves with checkpoint recovery', async () => {
+    for (let i = 1; i < 10; i++) {
+      const c = { id: undefined, name: '试点班' + i, code: 'PILOTCLASS', stage: '实训',
+        entry: true, enrollment: true, write: true, submit: true, score: true,
+        modules: ['employees', 'recruit', 'schedule', 'payroll', 'performance', 'training', 'relations'] };
+      assert.equal((await call('/hotel/api/classes', { cookie: ht.cookie, data: c })).status, 200);
+    }
+    const list = (await call('/hotel/api/classes', { cookie: ht.cookie })).body.classes;
+    assert.equal(list.length, 10);
+    const students = await Promise.all(list.map((c, i) => call('/hotel/api/login', { data: {
+      id: 'PILOT' + i, name: '模拟学生' + i, password: 'student123', classId: c.id,
+      classCode: c.id === 'default' ? 'TESTHOTEL' : 'PILOTCLASS'
+    } })));
+    for (const student of students) assert.equal(student.status, 200);
+    const saved = await Promise.all(students.map((student, i) => {
+      student.body.student.state.employees[0].base = 6000 + i;
+      return call('/hotel/api/state', { method: 'PUT', cookie: student.cookie, data: {
+        studentId: 'PILOT' + i, version: 1, state: student.body.student.state, logs: []
+      } });
+    }));
+    for (const result of saved) assert.equal(result.status, 200);
+    assert.ok(mock.stats.heads > 25, 'checkpoint interval crossed');
+  });
   await stop();
-  for (const name of ['catering/emenu.sqlite', 'hotel/hotel.sqlite']) {
+  if (backend === 'feishu') await t.test('offline export retains both databases for the NAS backend', async () => {
+    const exportDir = path.join(data, 'nas-export');
+    const { exportFeishu } = require('../scripts/export-feishu.cjs');
+    const env = { ...mock.env, TEACHER_PASSWORD: 'IntegrationTeacher2026!', CATERING_CLASS_CODE: 'TESTMENU', HOTEL_CLASS_CODE: 'TESTHOTEL' };
+    const heads = mock.stats.heads;
+    await exportFeishu(exportDir, env);
+    assert.equal(mock.stats.heads, heads, 'export must never write to Feishu');
+    for (const [namespace, file, student] of [['catering', 'emenu.sqlite', 'S001'], ['hotel', 'hotel.sqlite', 'PILOT9']]) {
+      const db = new DatabaseSync(path.join(exportDir, namespace, file));
+      assert.equal(db.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
+      assert.ok(db.prepare('SELECT id FROM users WHERE id=?').get(student));
+      db.close();
+    }
+    assert.ok(fs.existsSync(path.join(exportDir, 'EXPORT_COMPLETE')));
+    await assert.rejects(exportFeishu(exportDir, env), /EEXIST/);
+  });
+  if (backend === 'nas') for (const name of ['catering/emenu.sqlite', 'hotel/hotel.sqlite']) {
     const db = new DatabaseSync(path.join(data, name));
     assert.equal(db.prepare('PRAGMA journal_mode').get().journal_mode, 'delete');
     assert.equal(db.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
     db.close();
   }
+  else fs.rmSync(data, { recursive: true, force: true }); // Full FC-local-disk loss, not just a process restart.
   await start();
   await t.test('persistent users, records and sessions after full process restart', async () => {
     const snapshot = (await call('/catering/api/snapshot', { cookie: cs.cookie })).body;
@@ -125,7 +170,11 @@ test('merged gateway, role separation and durable classroom workflows', { timeou
     assert.equal(snapshot.submissions[0].score, 90);
     const hotel = (await call('/hotel/api/session', { cookie: hs.cookie })).body;
     assert.equal(hotel.student.state.employees[0].base, 5123);
-    assert.equal((await call('/hotel/api/teacher', { cookie: ht.cookie })).body.students.length, 1);
+    assert.equal((await call('/hotel/api/teacher', { cookie: ht.cookie })).body.students.length, backend === 'feishu' ? 11 : 1);
+    if (backend === 'feishu') for (let i = 0; i < 10; i++) {
+      const record = await call('/hotel/api/teacher/student?id=PILOT' + i, { cookie: ht.cookie });
+      assert.equal(record.body.student.state.employees[0].base, 6000 + i);
+    }
     for (const [prefix, cookie] of [['catering', cs.cookie], ['hotel', hs.cookie]]) {
       const result = await call(`/${prefix}/api/logout`, { cookie, data: {} });
       assert.equal(result.status, 200);

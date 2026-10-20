@@ -28,8 +28,13 @@ def build(backup, node, checksums, output):
                 continue
             if parts[0] in packages or (len(parts) == 1 and name.endswith((".py", ".so"))):
                 files[name] = (previous.read(prefix + name), 0o644)
-    for relative in ["app.py", "requirements.txt", "server.cjs", "package.json", "portal/index.html", "deploy/bootstrap"]:
+    for relative in ["app.py", "requirements.txt", "server.cjs", "package.json", "portal/index.html", "deploy/bootstrap",
+                     "README.md", "deploy/README.md", "deploy/FEISHU.md", "deploy/feishu.env.example"]:
         files[relative] = ((ROOT / relative).read_bytes(), 0o755 if relative == "deploy/bootstrap" else 0o644)
+    for source in sorted((ROOT / "storage").glob("*.cjs")):
+        files[source.relative_to(ROOT).as_posix()] = (source.read_bytes(), 0o644)
+    for source in sorted((ROOT / "scripts").glob("*.cjs")):
+        files[source.relative_to(ROOT).as_posix()] = (source.read_bytes(), 0o644)
     for app in ["catering", "hotel"]:
         app_root = ROOT / "apps" / app
         for source in sorted(app_root.glob("*.cjs")):

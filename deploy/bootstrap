@@ -3,10 +3,20 @@ set -euo pipefail
 cd /code
 export NODE_ENV=production
 export ENABLE_MCP=1
-export REQUIRE_NAS=1
-export NAS_MOUNT="${NAS_MOUNT:-/mnt/teaching}"
-export DATA_DIR="${DATA_DIR:-/mnt/teaching/data}"
-# WAL requires local shared memory. NFS uses rollback journals instead.
-export SQLITE_JOURNAL_MODE=DELETE
+export STORAGE_BACKEND="${STORAGE_BACKEND:-nas}"
+case "$STORAGE_BACKEND" in
+  nas)
+    export REQUIRE_NAS=1
+    export NAS_MOUNT="${NAS_MOUNT:-/mnt/teaching}"
+    export DATA_DIR="${DATA_DIR:-/mnt/teaching/data}"
+    # WAL requires local shared memory. NFS uses rollback journals instead.
+    export SQLITE_JOURNAL_MODE=DELETE
+    ;;
+  feishu)
+    export REQUIRE_NAS=0
+    export DATA_DIR="${DATA_DIR:-/tmp/teaching-cache}"
+    ;;
+  *) echo "Invalid STORAGE_BACKEND" >&2; exit 1 ;;
+esac
 export PORT=9000
 exec /code/bin/node server.cjs
