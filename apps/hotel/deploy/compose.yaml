@@ -1,0 +1,38 @@
+name: wushanyuan
+services:
+  app:
+    build:
+      context: ..
+    restart: unless-stopped
+    environment:
+      PORT: "8787"
+      HOST: "0.0.0.0"
+      DATA_DIR: /app/data
+      SECURE_COOKIE: "1"
+      TEACHER_PASSWORD: ${TEACHER_PASSWORD:?请在.env中设置教师初始密码}
+      CLASS_CODE: ${CLASS_CODE:?请在.env中设置默认班注册口令}
+    volumes:
+      - hotel_data:/app/data
+    expose:
+      - "8787"
+  web:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      HOTEL_DOMAIN: ${HOTEL_DOMAIN:?请在.env中填写已解析的域名}
+      ACME_EMAIL: ${ACME_EMAIL:?请在.env中填写证书联系邮箱}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+volumes:
+  hotel_data:
+    name: wushanyuan_hotel_data
+  caddy_data:
+  caddy_config:

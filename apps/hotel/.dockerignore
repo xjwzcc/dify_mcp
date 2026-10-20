@@ -1,0 +1,10 @@
+data
+archive
+*.log
+*.sqlite*
+*.pid
+test*
+*.ps1
+*.cmd
+.env
+**/.env

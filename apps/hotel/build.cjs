@@ -1,0 +1,21 @@
+// 从已交付的业务模块提取界面与种子数据，联网层由 online.js / server.cjs 提供。
+const fs=require('node:fs'),path=require('node:path');
+const dir=__dirname;
+const archivePath=path.join(dir,'archive','原始离线版.html');
+const html=fs.readFileSync(fs.existsSync(archivePath)?archivePath:path.join(dir,'..','酒店人力资源仿真系统.html'),'utf8');
+const script=html.split('<script>')[1].split('</script>')[0];
+if(!script.includes('function seed()'))throw Error('找不到原始业务模块');
+fs.mkdirSync(path.join(dir,'public'),{recursive:true});
+fs.mkdirSync(path.join(dir,'archive'),{recursive:true});
+fs.writeFileSync(path.join(dir,'archive','原始离线版.html'),html);
+const start=script.indexOf('function seed()'),end=script.indexOf('\nfunction init()',start);
+const progress=script.split('\n').find(s=>s.startsWith('function taskProgress('));
+fs.writeFileSync(path.join(dir,'domain.cjs'),"'use strict';\nconst TODAY='2026-10-20';\n"+script.slice(start,end)+"\nfunction evaluate(s,id){const state=()=>s;"+progress+";return taskProgress(id);}\nmodule.exports={seed,evaluate};\n");
+let onlineScript=script.replace(/init\(\);\s*$/,'// 联网版由 online.js 初始化。');
+for(const name of ['deleteEmployee','publishJob','hire','cancelEnroll','submitTask'])onlineScript=onlineScript.replace('function '+name+'(','async function '+name+'(');
+onlineScript=onlineScript.replaceAll(',v=>{',',async v=>{').replace("onclick=()=>{if(confirm(","onclick=async()=>{if(confirm(").replaceAll('confirm(','await askConfirm(');
+onlineScript=onlineScript.replace('纯前端成绩文件可被修改，不适合正式考试防作弊。','业务状态由服务器持久化，成绩在服务器判定；课程实训不提供正式考试防作弊。').replace('教师可通过当前浏览器或导入报告查看。','教师端已自动同步，无需导入报告。');
+onlineScript=onlineScript.replaceAll('澜庭酒店','吴山苑酒店');
+fs.writeFileSync(path.join(dir,'public','app.js'),onlineScript);
+fs.writeFileSync(path.join(dir,'public','index.html'),html.split('<script>')[0].replaceAll('澜庭酒店','苏州旅游职业学院 · 吴山苑酒店').replace('</head>','<link rel="stylesheet" href="/mobile.css"></head>').replace('width=device-width,initial-scale=1','width=device-width,initial-scale=1,viewport-fit=cover')+'<script src="/app.js"></script><script src="/online.js"></script><script src="/teaching.js"></script><script src="/classroom.js"></script><script src="/mobile.js"></script></body></html>');
+console.log('Online UI and shared domain generated.');

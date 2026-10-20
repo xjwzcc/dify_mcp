@@ -1,0 +1,20 @@
+# 需先放入自己的Git仓库，再由Render Blueprint创建服务。磁盘为持久化付费资源。
+services:
+  - type: web
+    name: lanting-hotel-hr
+    runtime: docker
+    plan: starter
+    healthCheckPath: /api/health
+    disk:
+      name: hotel-data
+      mountPath: /app/data
+      sizeGB: 1
+    envVars:
+      - key: DATA_DIR
+        value: /app/data
+      - key: SECURE_COOKIE
+        value: "1"
+      - key: TEACHER_PASSWORD
+        sync: false
+      - key: CLASS_CODE
+        sync: false

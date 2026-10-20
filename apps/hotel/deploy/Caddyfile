@@ -1,0 +1,11 @@
+{
+    email {$ACME_EMAIL}
+}
+
+{$HOTEL_DOMAIN} {
+    encode gzip zstd
+    reverse_proxy app:8787 {
+        # 实时课堂事件应立即推送，不等待代理攒够缓冲区。
+        flush_interval -1
+    }
+}

@@ -1,0 +1,3719 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>电子菜单点餐仿真 · 苏州旅游职业学院</title>
+<style>
+  :root{
+    --red:#E9432F; --red-d:#C73522; --dark:#1F2733; --gray:#66707D;
+    --bg:#F5F6F8; --card:#FFFFFF; --line:#E3E6EA; --blue:#2A6EC9; --green:#1F9D55; --amber:#D98A15;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{font-family:"Microsoft YaHei","PingFang SC",sans-serif; background:var(--bg); color:var(--dark); font-size:14px; -webkit-text-size-adjust:100%;}
+  header{position:sticky; top:0; z-index:50; background:var(--card); border-bottom:1px solid var(--line); padding:10px 18px; display:flex; align-items:center; gap:14px; flex-wrap:wrap;}
+  .brandwrap{display:flex; flex-direction:column;}
+  .schoolbar{font-size:12px; font-weight:700; color:var(--blue); letter-spacing:1px; margin-bottom:1px;}
+  .brand{font-size:17px; font-weight:700;}
+  .brand small{color:var(--gray); font-weight:400; margin-left:8px; font-size:12px;}
+  nav{display:flex; gap:8px; margin-left:auto;}
+  .tab{border:1px solid var(--line); background:#fff; padding:7px 16px; border-radius:20px; cursor:pointer; font-size:14px;}
+  .tab.active{background:var(--dark); color:#fff; border-color:var(--dark);}
+  /* ===== 账号区（页首） ===== */
+  .who{display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--gray);}
+  .who b{color:var(--dark); font-size:13px;}
+  .minilink{border:1px solid var(--line); background:#fff; border-radius:14px; padding:5px 12px; font-size:12.5px; cursor:pointer;}
+  /* ===== 营业 / 闭店 总闸 ===== */
+  .openbtn{border:1px solid #BFE3CB; background:#E8F6EC; color:#1E7A3C; border-radius:16px; padding:5px 13px;
+    font-size:12.5px; font-weight:700; cursor:pointer; font-family:inherit; white-space:nowrap;}
+  .openbtn.off{background:#FDECEC; color:#B3261E; border-color:#F3C4C0;}
+  .openbtn:hover{filter:brightness(.95);}
+  .openbtn small{display:block; font-weight:400; font-size:10.5px; opacity:.75; margin-top:1px;}
+  @media (max-width:640px){
+    .openbtn small{display:none;}
+    .openbtn{padding:5px 10px; font-size:12px;}
+    header{gap:8px;}
+  }
+  .bannerclosed{background:#FDECEC; border:1px solid #F3C4C0; color:#B3261E; font-size:12.5px; line-height:1.7;
+    padding:8px 14px; border-radius:8px; margin-bottom:12px;}
+  .bannerclosed b{color:#8E1B14;}
+  .closedwrap{position:fixed; inset:0; z-index:400; background:linear-gradient(#1F2733,#2A3542);
+    display:flex; align-items:center; justify-content:center; padding:20px; overflow:auto;}
+  .closedbox{background:#fff; border-radius:16px; width:min(420px,100%); padding:30px 26px 22px; text-align:center;
+    box-shadow:0 12px 40px rgba(0,0,0,.3);}
+  .closedbox .cico{font-size:44px; line-height:1;}
+  .closedbox h3{font-size:19px; margin:12px 0 8px; color:#1F2733;}
+  .closedbox .cr{font-size:13.5px; color:#66707D; line-height:1.85;}
+  .closedbox .cnote{margin-top:16px; padding-top:12px; border-top:1px dashed var(--line); font-size:11.5px; color:#9AA3AD; line-height:1.7;}
+  .closedbox .cbtn{margin-top:16px; border:1px solid var(--line); background:#fff; border-radius:10px;
+    padding:10px 18px; font-size:13.5px; cursor:pointer; font-family:inherit; width:100%;}
+  .closedbox .cbtn:hover{background:#F7F8FA;}
+  /* ===== 整站访问闸门 ===== */
+  .gatepin{display:flex; gap:8px; margin-top:16px;}
+  .gatepin input{flex:1; min-width:0; border:1px solid var(--line); border-radius:10px; padding:10px 12px;
+    font-size:14px; font-family:inherit; text-align:center; letter-spacing:2px;}
+  .gatepin .cbtn{width:auto; margin-top:0; padding:10px 20px; background:var(--dark); color:#fff;
+    border-color:var(--dark); flex:none;}
+  .gatepin .cbtn:hover{background:#2A3542;}
+  .gaterr{color:var(--red); font-size:12px; min-height:16px; margin-top:6px;}
+  .datanote{color:#9AA3AD; font-size:12px; line-height:1.7; margin-top:10px; text-align:right;}
+  #toast{position:fixed; left:50%; bottom:34px; transform:translateX(-50%) translateY(12px); background:var(--dark); color:#fff; padding:9px 20px; border-radius:20px; font-size:13px; opacity:0; pointer-events:none; transition:.25s; z-index:700; max-width:90%; text-align:center;}
+  #toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
+  .hint{background:#FFF7E8; color:#8A6116; font-size:12.5px; padding:6px 18px; border-bottom:1px solid #F0E3C8;}
+  main{max-width:1080px; margin:0 auto; padding:16px;}
+
+  /* ===== 登录 / 账号 ===== */
+  .loginwrap{position:fixed; inset:0; z-index:300; background:linear-gradient(#1F2733,#2A3542); display:flex; align-items:center; justify-content:center; padding:16px; overflow:auto;}
+  .loginbox{background:#fff; border-radius:16px; width:min(400px,100%); padding:26px 24px 20px; box-shadow:0 12px 40px rgba(0,0,0,.3);}
+  .lgeye{font-size:12.5px; font-weight:700; color:var(--blue); letter-spacing:1px; margin-bottom:5px;}
+  .loginbox h2{font-size:19px; margin-bottom:18px;}
+  .loginbox .sub{color:var(--gray); font-size:12.5px; margin-bottom:18px; line-height:1.6;}
+  .lgfld{margin-bottom:12px;}
+  .lgfld label{display:block; font-size:12.5px; font-weight:700; color:var(--gray); margin-bottom:5px;}
+  .lgfld input{width:100%; border:1px solid var(--line); border-radius:10px; padding:11px 12px; font-size:15px; font-family:inherit;}
+  .lgtip{color:#9AA3AD; font-size:11.5px; margin-top:5px; line-height:1.6;}
+  .lgerr{color:var(--red); font-size:12.5px; min-height:18px; margin:2px 0 8px;}
+  .lgbtn{width:100%; background:var(--red); color:#fff; border:none; border-radius:10px; padding:13px; font-size:16px; font-weight:700; cursor:pointer;}
+  .lgbtn.ghost{background:#fff; color:var(--dark); border:1px solid var(--line); margin-top:9px; font-weight:400; font-size:14px; padding:11px;}
+  .lgfoot{margin-top:14px; padding-top:12px; border-top:1px solid var(--line); display:flex; justify-content:space-between; gap:10px; font-size:12.5px;}
+  .lgfoot a{color:var(--blue); cursor:pointer;}
+  /* ===== 顾客端 ===== */
+  .tablebar{display:flex; align-items:center; gap:10px; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 14px; margin-bottom:14px; flex-wrap:wrap;}
+  .tablebar b{font-size:14px;}
+  .tchip{border:1px solid var(--line); border-radius:16px; padding:4px 13px; cursor:pointer; background:#fff;}
+  .tchip.sel{background:var(--red); color:#fff; border-color:var(--red);}
+  .foodgrid{display:flex; gap:14px; align-items:flex-start;}
+  .cats{display:flex; flex-direction:column; gap:6px; min-width:76px; position:sticky; top:72px;}
+  .cat{background:var(--card); border:1px solid var(--line); border-radius:8px; padding:8px 10px; cursor:pointer; text-align:center; font-size:13.5px;}
+  .cat.sel{background:var(--dark); color:#fff; border-color:var(--dark);}
+  .dishes{flex:1; display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:10px;}
+  .dish{background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 14px; display:flex; gap:12px; position:relative;}
+  .dish .pic{width:52px; height:52px; border-radius:8px; background:#FDEDEA; display:flex; align-items:center; justify-content:center; font-size:26px; flex:none;}
+  .dish h4{font-size:15px; margin-bottom:3px;}
+  .dish .desc{color:var(--gray); font-size:12px; margin-bottom:5px;}
+  .dish .price{color:var(--red); font-weight:700; font-size:15px;}
+  .dish .price small{font-weight:400; color:var(--gray); font-size:11px;}
+  .addbtn{position:absolute; right:12px; bottom:10px; width:28px; height:28px; border-radius:14px; background:var(--red); color:#fff; border:none; font-size:18px; cursor:pointer; line-height:1;}
+  .dish.off .pic,.dish.off h4,.dish.off .desc,.dish.off .price{opacity:.35;}
+  .soldout{position:absolute; right:12px; top:10px; color:var(--gray); font-size:12px; border:1px solid var(--line); border-radius:4px; padding:2px 6px;}
+  .cartbar{position:fixed; left:50%; transform:translateX(-50%); bottom:16px; width:min(680px,92%); background:var(--dark); border-radius:26px; color:#fff; display:flex; align-items:center; gap:14px; padding:10px 20px; z-index:60; box-shadow:0 6px 20px rgba(0,0,0,.25); cursor:pointer;}
+  .cartbar .cnt{background:var(--red); border-radius:12px; padding:2px 10px; font-size:13px;}
+  .cartbar .total{font-size:17px; font-weight:700; color:#FFD9A0;}
+  .cartbar .go{margin-left:auto; background:var(--red); border-radius:18px; padding:7px 18px; font-size:14px;}
+  .cartpanel{position:fixed; left:50%; transform:translateX(-50%); bottom:76px; width:min(680px,92%); background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px 16px; z-index:59; box-shadow:0 6px 20px rgba(0,0,0,.15); display:none;}
+  .cartpanel.show{display:block;}
+  .citem{display:flex; align-items:center; gap:10px; padding:7px 0; border-bottom:1px dashed var(--line); font-size:13.5px;}
+  .citem .nm{flex:1;}
+  .citem .nm small{display:block; color:var(--gray); font-size:11.5px;}
+  .qty{display:flex; align-items:center; gap:8px;}
+  .qty button{width:22px; height:22px; border-radius:11px; border:1px solid var(--line); background:#fff; cursor:pointer; font-size:14px; line-height:1;}
+  .notearea{width:100%; margin-top:8px; border:1px solid var(--line); border-radius:8px; padding:7px 10px; font-size:13px; font-family:inherit;}
+  .submit{width:100%; margin-top:10px; background:var(--red); color:#fff; border:none; border-radius:10px; padding:11px; font-size:15px; font-weight:700; cursor:pointer;}
+  .submit:disabled{background:#C7CCD2; cursor:not-allowed;}
+
+  .myorders{margin-top:16px;}
+  .myorders h3{font-size:14.5px; margin-bottom:8px; color:var(--dark);}
+  .oitem{background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 14px; margin-bottom:8px;}
+  .oitem .head{display:flex; gap:10px; align-items:center; margin-bottom:4px; flex-wrap:wrap;}
+  .oitem .head b{font-size:14px;}
+  .badge{font-size:11.5px; border-radius:10px; padding:2px 9px;}
+  .b-new{background:#EAF1FC; color:var(--blue);}
+  .b-cook{background:#FFF3E0; color:var(--amber);}
+  .b-done{background:#E7F6EE; color:var(--green);}
+  .b-paid{background:#EEEEF0; color:var(--gray);}
+  .oitem .body{color:var(--gray); font-size:12.5px; line-height:1.7;}
+
+  /* 弹层 */
+  .mask{position:fixed; inset:0; background:rgba(20,24,30,.45); z-index:400; display:none; align-items:center; justify-content:center; padding:16px;}
+  .mask.show{display:flex;}
+  .dlg{background:#fff; border-radius:14px; width:min(420px,94%); padding:18px 20px; max-height:86vh; overflow:auto;}
+  .dlg h3{font-size:16px; margin-bottom:4px;}
+  .dlg .sub{color:var(--gray); font-size:12.5px; margin-bottom:12px;}
+  .optgrp{margin-bottom:12px;}
+  .optgrp label{display:block; font-size:13px; font-weight:700; margin-bottom:6px;}
+  .opts{display:flex; flex-wrap:wrap; gap:8px;}
+  .opt{border:1px solid var(--line); border-radius:16px; padding:5px 13px; cursor:pointer; font-size:13px; background:#fff;}
+  .opt.sel{background:var(--dark); color:#fff; border-color:var(--dark);}
+  .opt.sel.pricey{background:var(--red); border-color:var(--red);}
+  .dlgbtns{display:flex; gap:10px; margin-top:6px;}
+  .dlgbtns button{flex:1; border-radius:10px; padding:10px; font-size:14.5px; cursor:pointer; border:none; font-weight:700;}
+  .canc{background:#EEEEF0; color:var(--dark);}
+  .okb{background:var(--red); color:#fff;}
+  /* 自绘对话框（替代 alert / confirm / prompt，兼容手机与微信内置浏览器） */
+  .uimask{z-index:600;}
+  .uimsg{font-size:13.5px; color:var(--gray); line-height:1.75; white-space:pre-line; margin:6px 0 10px;}
+  .uifld{display:flex; gap:8px; align-items:stretch; margin-bottom:4px;}
+  .uifld input{flex:1; min-width:0; font-size:16px; padding:11px 12px; border:1px solid var(--line); border-radius:10px; background:#fff; color:var(--dark); font-family:inherit;}
+  .uifld input:focus{outline:none; border-color:var(--blue); box-shadow:0 0 0 3px rgba(42,110,201,.12);}
+  .uieye{flex:none; border:1px solid var(--line); background:#F5F6F8; color:var(--gray); border-radius:10px; padding:0 13px; font-size:13px; cursor:pointer; font-family:inherit;}
+  .uierr{color:var(--red-d); font-size:12.5px; min-height:18px; line-height:18px; margin-bottom:2px;}
+  .uimask .okb{background:var(--blue);}
+  .uimask .okb.danger{background:var(--red);}
+  /* ===== 商家端 ===== */
+  .subtabs{display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap;}
+  .subtab{border:1px solid var(--line); background:#fff; border-radius:8px; padding:7px 16px; cursor:pointer; font-size:13.5px;}
+  .subtab.sel{background:var(--blue); color:#fff; border-color:var(--blue);}
+  .kds{display:grid; grid-template-columns:repeat(3,1fr); gap:12px;}
+  .kcol{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px; min-height:260px;}
+  .kcol h4{font-size:13.5px; padding:4px 6px 10px; display:flex; justify-content:space-between;}
+  .kcol h4 span{color:var(--gray); font-weight:400;}
+  .kcard{border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-bottom:9px; background:#fff;}
+  .kcard .kh{display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;}
+  .kcard .kh b{font-size:14.5px;}
+  .kcard .tm{color:var(--gray); font-size:11.5px;}
+  .kcard .li{font-size:12.8px; line-height:1.75; color:var(--dark);}
+  .kcard .li small{color:var(--red);}
+  .kcard .note{color:var(--amber); font-size:12px; margin-top:3px;}
+  .kbtn{width:100%; margin-top:8px; border:none; border-radius:8px; padding:7px; font-size:13px; cursor:pointer; font-weight:700;}
+  .kb1{background:#EAF1FC; color:var(--blue);}
+  .kb2{background:#FFF3E0; color:var(--amber);}
+  .kb3{background:#E7F6EE; color:var(--green);}
+  .kb4{background:#EEEEF0; color:var(--gray);}
+
+  table.mgmt{width:100%; border-collapse:collapse; background:var(--card); border-radius:10px; overflow:hidden;}
+  table.mgmt th,table.mgmt td{padding:9px 12px; border-bottom:1px solid var(--line); text-align:left; font-size:13.5px;}
+  table.mgmt th{background:#F2F4F6; font-size:12.5px; color:var(--gray);}
+  .priceinput{width:76px; border:1px solid var(--line); border-radius:6px; padding:4px 8px; font-size:13.5px;}
+  .soBtn{border:none; border-radius:14px; padding:4px 13px; font-size:12.5px; cursor:pointer;}
+  .soOn{background:#FDECEA; color:var(--red);}
+  .soOff{background:#E7F6EE; color:var(--green);}
+
+  .statgrid{display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin-bottom:16px;}
+  .stat{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px 16px;}
+  .stat .v{font-size:24px; font-weight:800; color:var(--dark); margin-top:4px;}
+  .stat .v small{font-size:13px; font-weight:400; color:var(--gray);}
+  .stat.redv .v{color:var(--red);}
+  .tops{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px 16px;}
+  .tops h4{font-size:14px; margin-bottom:10px;}
+  .trow{display:flex; align-items:center; gap:10px; margin-bottom:8px; font-size:13.5px;}
+  .trow .rank{width:20px; height:20px; border-radius:10px; background:#EEEEF0; text-align:center; line-height:20px; font-size:12px; flex:none;}
+  .trow:nth-child(2) .rank{background:#FFE9C8;} .trow:nth-child(3) .rank{background:#FDECEA;} 
+  .trow .bar{height:8px; border-radius:4px; background:var(--red); opacity:.75;}
+  .trow .qty2{margin-left:auto; color:var(--gray);}
+  .flow{margin-top:14px;}
+  .flow table{width:100%; border-collapse:collapse; background:var(--card); border-radius:10px; overflow:hidden;}
+  .flow th,.flow td{padding:8px 12px; border-bottom:1px solid var(--line); font-size:13px; text-align:left;}
+  .flow th{background:#F2F4F6; color:var(--gray); font-size:12px;}
+  .resetrow{margin-top:16px; text-align:right;}
+  .reset{background:#fff; border:1px solid var(--line); color:var(--gray); border-radius:8px; padding:7px 16px; cursor:pointer; font-size:13px;}
+  .reset:hover{color:var(--red); border-color:var(--red);}
+  .empty{color:#9AA3AD; text-align:center; padding:30px 0; font-size:13px;}
+  footer{color:#9AA3AD; text-align:center; font-size:12px; padding:22px 0 90px;}
+  .qrgrid{display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:14px;}
+  .qrcard{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; text-align:center;}
+  .qrcard b{display:block; font-size:16px; margin-bottom:2px;}
+  .qrcard .tno{color:var(--gray); font-size:12px; margin-bottom:10px; word-break:break-all;}
+  .qrcard canvas{display:block; margin:0 auto;}
+  .qrnote{background:#EEF4FB; color:#1F4E79; font-size:12px; line-height:1.7; padding:8px 12px; border-radius:8px; margin-bottom:12px;}
+  /* ===== 扫码顾客端：所属小组横幅 ===== */
+  .guestbar{background:linear-gradient(135deg,#1F2733,#2A3542); color:#fff; border-radius:12px;
+    padding:11px 15px; margin-bottom:12px; box-shadow:0 6px 18px rgba(31,39,51,.18);}
+  .guestbar .gline1{display:flex; align-items:center; gap:9px; flex-wrap:wrap;}
+  .guestbar .gno{font-size:16px; font-weight:700; letter-spacing:.5px;}
+  .guestbar .gstore{font-size:12.5px; background:rgba(255,255,255,.16); border-radius:12px; padding:2px 10px;}
+  .guestbar .gtip{font-size:12px; color:#C4CBD6; line-height:1.7; margin-top:4px;}
+  .guestbar .gtip b{color:#FFD9A0;}
+  .qrtrim{background:#FFF7E8; color:#8A6116; font-size:12px; line-height:1.7; padding:7px 12px; border-radius:8px; margin:0 0 10px;}
+  .qrstats{text-align:center; font-size:12px; color:var(--gray); margin-bottom:10px;}
+  .ordercode{width:100%; height:96px; font-size:12px; font-family:inherit; border:1px solid var(--line); border-radius:8px; padding:8px; resize:vertical; line-height:1.5;}
+  .codeqr{margin:12px auto 0;}
+  .qrbig{display:flex; justify-content:center; margin:6px 0 10px;}
+  .qrbig canvas{max-width:100%; height:auto;}
+  .qrmeta{text-align:center; font-size:13px; font-weight:700; color:var(--dark); margin-bottom:10px;}
+  @media (max-width:860px){
+    .qrgrid{grid-template-columns:repeat(2,1fr); gap:10px;}
+    .qrcard{padding:10px;}
+    .qrcard canvas{max-width:100%; height:auto;}
+  }
+
+  /* ===== 菜品编辑（新增/改价/图片/描述/规格） ===== */
+  .dlg.wide{width:min(580px,95%);}
+  .fld{margin-bottom:11px;}
+  .fld label{display:block; font-size:12.5px; font-weight:700; color:var(--gray); margin-bottom:5px;}
+  .fld input,.fld textarea{width:100%; border:1px solid var(--line); border-radius:8px; padding:7px 10px; font-size:13.5px; font-family:inherit;}
+  .fld textarea{resize:vertical; min-height:54px;}
+  .fld .row2{display:flex; gap:10px;}
+  .fld .row2>div{flex:1;}
+  .thumb{width:66px; height:66px; border-radius:8px; border:1px solid var(--line); background:#FDEDEA; display:flex; align-items:center; justify-content:center; font-size:32px; overflow:hidden; flex:none;}
+  .thumb img{width:100%; height:100%; object-fit:cover;}
+  .emojis{display:flex; flex-wrap:wrap; gap:6px; margin-top:7px;}
+  .emojis span{border:1px solid var(--line); border-radius:6px; padding:3px 8px; cursor:pointer; font-size:16px; background:#fff;}
+  .emojis span.sel{border-color:var(--red); background:#FDECEA;}
+  .specrow{display:flex; gap:8px; align-items:center; margin-bottom:6px;}
+  .specrow input{flex:1; border:1px solid var(--line); border-radius:6px; padding:5px 8px; font-size:13px;}
+  .specrow .sp{width:86px; flex:none;}
+  .mini{border:1px solid var(--line); background:#fff; border-radius:6px; padding:4px 9px; font-size:12px; cursor:pointer; white-space:nowrap;}
+  .mini.del{color:var(--red);}
+  .mgmtTools{display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap; align-items:center;}
+  .addish{background:var(--red); color:#fff; border:none; border-radius:8px; padding:8px 16px; font-size:13.5px; font-weight:700; cursor:pointer;}
+  .tpic{width:38px; height:38px; border-radius:6px; background:#FDEDEA; display:flex; align-items:center; justify-content:center; font-size:19px; overflow:hidden;}
+  .tpic img{width:100%; height:100%; object-fit:cover;}
+  .dish .pic img{width:52px; height:52px; border-radius:8px; object-fit:cover;}
+  .dishBig{width:100%; height:150px; object-fit:cover; border-radius:10px; margin-bottom:10px; display:block;}
+  .catrow{display:flex; gap:8px; align-items:center; padding:7px 0; border-bottom:1px dashed var(--line);}
+  .catrow input{flex:1; border:1px solid var(--line); border-radius:6px; padding:5px 8px; font-size:13px;}
+  /* ===== 手机端适配 ===== */
+  @media (max-width:860px){
+    header{padding:8px 10px; gap:8px;}
+    .brand{display:none;}
+    nav{width:auto; flex:1; margin-left:0; gap:6px;}
+    .tab{flex:1; text-align:center; padding:10px 6px; font-size:13.5px;}
+    .who{width:100%; justify-content:space-between; gap:6px; padding-top:7px; border-top:1px dashed var(--line);}
+    .who>span{overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0;}
+    .minilink{padding:6px 12px; font-size:12px; flex:none;}
+    .hint{font-size:12px; padding:6px 12px;}
+    main{padding:10px;}
+    .loginbox{padding:22px 18px 16px;}
+
+
+
+    /* 顾客端 */
+    .tablebar{padding:9px 12px; gap:8px;}
+    .tchip{padding:7px 14px; font-size:13.5px;}
+    .foodgrid{flex-direction:column; gap:10px;}
+    .cats{flex-direction:row; position:static; overflow-x:auto; flex-wrap:nowrap; width:100%; padding-bottom:4px; -webkit-overflow-scrolling:touch;}
+    .cat{white-space:nowrap; padding:9px 15px; font-size:14px;}
+    .dishes{grid-template-columns:1fr; gap:9px;}
+    .dish{padding:11px 12px; gap:11px;}
+    .dish .pic{width:56px; height:56px; font-size:27px;}
+    .dish h4{font-size:15px; padding-right:44px;}
+    .dish .desc{padding-right:44px;}
+    .addbtn{width:34px; height:34px; border-radius:17px; font-size:20px; right:10px; bottom:9px;}
+    .soldout{top:9px; right:10px;}
+    .cartbar{width:94%; bottom:10px; padding:11px 16px; gap:10px; border-radius:24px;}
+    .cartbar .go{padding:8px 15px;}
+    .cartpanel{width:94%; bottom:72px; max-height:58vh; overflow:auto; padding:12px 13px;}
+    .qty button{width:30px; height:30px; border-radius:15px; font-size:16px;}
+    .submit{padding:13px; font-size:16px;}
+
+    /* 商家端 */
+    .subtabs{overflow-x:auto; flex-wrap:nowrap; padding-bottom:4px; -webkit-overflow-scrolling:touch;}
+    .subtab{white-space:nowrap; padding:9px 15px; font-size:14px;}
+    .kds{grid-template-columns:1fr; gap:10px;}
+    .kcol{min-height:0;}
+    .kbtn{padding:10px; font-size:14px;}
+    .statgrid{grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:9px;}
+    .stat{padding:12px 13px;}
+    .stat .v{font-size:20px;}
+    .trow{gap:7px; font-size:13px;}
+    .trow .bar{max-width:32%; flex:0 0 auto;}
+    .trow .qty2{margin-left:6px; flex:none;}
+    .resetrow{text-align:left; display:flex; flex-wrap:wrap; gap:8px;}
+    .resetrow .reset{flex:1 1 auto; padding:10px 12px; text-align:center;}
+    .datanote{text-align:left;}
+
+    /* 表格转卡片：加 data-th 的单元格在手机上变两栏 */
+    table.mgmt thead{display:none;}
+    table.mgmt,table.mgmt tbody,table.mgmt tr,table.mgmt td{display:block; width:100%;}
+    table.mgmt tr{border:1px solid var(--line); border-radius:10px; margin-bottom:9px; padding:8px 11px; background:var(--card);}
+    table.mgmt td{border:none; padding:5px 0; display:flex; align-items:center; gap:10px; font-size:13.5px;}
+    table.mgmt td:before{content:attr(data-th); color:var(--gray); font-size:12px; flex:none; width:66px;}
+    table.mgmt td:empty{display:none;}
+    .flow table thead{display:none;}
+    .flow table,.flow tbody,.flow tr,.flow td{display:block; width:100%;}
+    .flow tr{border:1px solid var(--line); border-radius:10px; margin-bottom:9px; padding:8px 11px;}
+    .flow td{border:none; padding:4px 0; display:flex; gap:10px; align-items:center;}
+    .flow td:before{content:attr(data-th); color:var(--gray); font-size:12px; flex:none; width:66px;}
+
+    /* 弹层 */
+    .mask{padding:10px;}
+    .dlg{width:100%; max-height:88vh; padding:16px 16px; border-radius:14px;}
+    .dlg.wide{width:100%;}
+    .dlgbtns button{padding:12px;}
+    .fld input,.fld textarea{font-size:16px;}
+    .lgfld input{font-size:16px;}
+  }
+  @media (max-width:420px){
+    .brand{font-size:14px;}
+    .tab{font-size:13px; padding:9px 6px;}
+    .who{font-size:12px;}
+  }
+</style>
+</head>
+<body>
+<header id="appHeader" style="display:none">
+  <div class="brandwrap">
+    <div class="schoolbar">苏州旅游职业学院</div>
+    <div class="brand">电子菜单点餐仿真系统<small>餐饮信息系统 · 教学版</small></div>
+  </div>
+  <nav>
+    <button class="tab active" id="tabG" onclick="switchView('g')">📱 顾客点餐端</button>
+    <button class="tab" id="tabB" onclick="switchView('b')">🖥️ 商家管理端</button>
+  </nav>
+  <button class="openbtn" id="openBtn" onclick="toggleOpen()" title="一键关闭 / 打开本系统的顾客点单端">🟢 营业中</button>
+  <div class="who">
+    <span>当前账号 <b id="whoName">—</b></span>
+    <button class="minilink" onclick="logout()">退出登录</button>
+  </div>
+</header>
+<div id="closedWrap" class="closedwrap" style="display:none"></div>
+<main style="display:none" id="appMain">
+  <section id="guestView"></section>
+  <section id="bossView" style="display:none"></section>
+</main>
+<footer id="appFooter" style="display:none">苏州旅游职业学院 · 单文件离线仿真 · 数据按账号保存在本机浏览器</footer>
+
+<!-- 登录 / 账号 -->
+<div id="gateWrap" class="closedwrap" style="display:none; z-index:500"></div>
+<div class="loginwrap" id="loginWrap">
+  <div class="loginbox">
+    <div class="lgeye">苏州旅游职业学院</div>
+    <h2>电子菜单点餐仿真系统</h2>
+    <div class="lgfld" id="fldUser">
+      <label>本组账号</label>
+      <input id="lgUser" autocomplete="off" oninput="checkAcct()" placeholder="如：3（即第 3 组）">
+      <div class="lgtip">账号自行命名，如 <b>3</b>、<b>苏香阁</b>。</div>
+    </div>
+    <div class="lgfld" id="fldStore" style="display:none">
+      <label>店名 / 组名（选填）</label>
+      <input id="lgStore" autocomplete="off" placeholder="如：苏香阁 · 第 3 组">
+    </div>
+    <div class="lgfld" id="fldPass">
+      <label>密码</label>
+      <input id="lgPass" type="password" autocomplete="off" onkeydown="if(event.key==='Enter')doLogin()" placeholder="首次使用请自行设置">
+    </div>
+    <div class="lgfld" id="fldPass2" style="display:none">
+      <label>确认密码</label>
+      <input id="lgPass2" type="password" autocomplete="off" onkeydown="if(event.key==='Enter')doLogin()" placeholder="再输一次">
+    </div>
+    <div class="lgerr" id="lgErr"></div>
+    <button class="lgbtn" id="lgBtn" onclick="doLogin()">登录 / 首次设置</button>
+    <button class="lgbtn ghost" onclick="guestEntry()">以顾客身份进入（不看后台，直接点餐）</button>
+    <div id="schedNote" style="margin-top:12px;font-size:12px;color:#8A939D;line-height:1.7;text-align:center;"></div>
+
+  </div>
+</div>
+
+<script>
+/* ================= 二维码编码器（qrcode-generator by Kazuhiko Arase, MIT） ================= */
+/* QR Code Generator (c) Kazuhiko Arase, MIT License — 已内联，离线可用 */
+var qrcode = function() {
+var qrcode = function(typeNumber, errorCorrectionLevel) {
+var PAD0 = 0xEC;
+var PAD1 = 0x11;
+var _typeNumber = typeNumber;
+var _errorCorrectionLevel = QRErrorCorrectionLevel[errorCorrectionLevel];
+var _modules = null;
+var _moduleCount = 0;
+var _dataCache = null;
+var _dataList = [];
+var _this = {};
+var makeImpl = function(test, maskPattern) {
+_moduleCount = _typeNumber * 4 + 17;
+_modules = function(moduleCount) {
+var modules = new Array(moduleCount);
+for (var row = 0; row < moduleCount; row += 1) {
+modules[row] = new Array(moduleCount);
+for (var col = 0; col < moduleCount; col += 1) {
+modules[row][col] = null;
+}
+}
+return modules;
+}(_moduleCount);
+setupPositionProbePattern(0, 0);
+setupPositionProbePattern(_moduleCount - 7, 0);
+setupPositionProbePattern(0, _moduleCount - 7);
+setupPositionAdjustPattern();
+setupTimingPattern();
+setupTypeInfo(test, maskPattern);
+if (_typeNumber >= 7) {
+setupTypeNumber(test);
+}
+if (_dataCache == null) {
+_dataCache = createData(_typeNumber, _errorCorrectionLevel, _dataList);
+}
+mapData(_dataCache, maskPattern);
+};
+var setupPositionProbePattern = function(row, col) {
+for (var r = -1; r <= 7; r += 1) {
+if (row + r <= -1 || _moduleCount <= row + r) continue;
+for (var c = -1; c <= 7; c += 1) {
+if (col + c <= -1 || _moduleCount <= col + c) continue;
+if ( (0 <= r && r <= 6 && (c == 0 || c == 6) )
+|| (0 <= c && c <= 6 && (r == 0 || r == 6) )
+|| (2 <= r && r <= 4 && 2 <= c && c <= 4) ) {
+_modules[row + r][col + c] = true;
+} else {
+_modules[row + r][col + c] = false;
+}
+}
+}
+};
+var getBestMaskPattern = function() {
+var minLostPoint = 0;
+var pattern = 0;
+for (var i = 0; i < 8; i += 1) {
+makeImpl(true, i);
+var lostPoint = QRUtil.getLostPoint(_this);
+if (i == 0 || minLostPoint > lostPoint) {
+minLostPoint = lostPoint;
+pattern = i;
+}
+}
+return pattern;
+};
+var setupTimingPattern = function() {
+for (var r = 8; r < _moduleCount - 8; r += 1) {
+if (_modules[r][6] != null) {
+continue;
+}
+_modules[r][6] = (r % 2 == 0);
+}
+for (var c = 8; c < _moduleCount - 8; c += 1) {
+if (_modules[6][c] != null) {
+continue;
+}
+_modules[6][c] = (c % 2 == 0);
+}
+};
+var setupPositionAdjustPattern = function() {
+var pos = QRUtil.getPatternPosition(_typeNumber);
+for (var i = 0; i < pos.length; i += 1) {
+for (var j = 0; j < pos.length; j += 1) {
+var row = pos[i];
+var col = pos[j];
+if (_modules[row][col] != null) {
+continue;
+}
+for (var r = -2; r <= 2; r += 1) {
+for (var c = -2; c <= 2; c += 1) {
+if (r == -2 || r == 2 || c == -2 || c == 2
+|| (r == 0 && c == 0) ) {
+_modules[row + r][col + c] = true;
+} else {
+_modules[row + r][col + c] = false;
+}
+}
+}
+}
+}
+};
+var setupTypeNumber = function(test) {
+var bits = QRUtil.getBCHTypeNumber(_typeNumber);
+for (var i = 0; i < 18; i += 1) {
+var mod = (!test && ( (bits >> i) & 1) == 1);
+_modules[Math.floor(i / 3)][i % 3 + _moduleCount - 8 - 3] = mod;
+}
+for (var i = 0; i < 18; i += 1) {
+var mod = (!test && ( (bits >> i) & 1) == 1);
+_modules[i % 3 + _moduleCount - 8 - 3][Math.floor(i / 3)] = mod;
+}
+};
+var setupTypeInfo = function(test, maskPattern) {
+var data = (_errorCorrectionLevel << 3) | maskPattern;
+var bits = QRUtil.getBCHTypeInfo(data);
+for (var i = 0; i < 15; i += 1) {
+var mod = (!test && ( (bits >> i) & 1) == 1);
+if (i < 6) {
+_modules[i][8] = mod;
+} else if (i < 8) {
+_modules[i + 1][8] = mod;
+} else {
+_modules[_moduleCount - 15 + i][8] = mod;
+}
+}
+for (var i = 0; i < 15; i += 1) {
+var mod = (!test && ( (bits >> i) & 1) == 1);
+if (i < 8) {
+_modules[8][_moduleCount - i - 1] = mod;
+} else if (i < 9) {
+_modules[8][15 - i - 1 + 1] = mod;
+} else {
+_modules[8][15 - i - 1] = mod;
+}
+}
+_modules[_moduleCount - 8][8] = (!test);
+};
+var mapData = function(data, maskPattern) {
+var inc = -1;
+var row = _moduleCount - 1;
+var bitIndex = 7;
+var byteIndex = 0;
+var maskFunc = QRUtil.getMaskFunction(maskPattern);
+for (var col = _moduleCount - 1; col > 0; col -= 2) {
+if (col == 6) col -= 1;
+while (true) {
+for (var c = 0; c < 2; c += 1) {
+if (_modules[row][col - c] == null) {
+var dark = false;
+if (byteIndex < data.length) {
+dark = ( ( (data[byteIndex] >>> bitIndex) & 1) == 1);
+}
+var mask = maskFunc(row, col - c);
+if (mask) {
+dark = !dark;
+}
+_modules[row][col - c] = dark;
+bitIndex -= 1;
+if (bitIndex == -1) {
+byteIndex += 1;
+bitIndex = 7;
+}
+}
+}
+row += inc;
+if (row < 0 || _moduleCount <= row) {
+row -= inc;
+inc = -inc;
+break;
+}
+}
+}
+};
+var createBytes = function(buffer, rsBlocks) {
+var offset = 0;
+var maxDcCount = 0;
+var maxEcCount = 0;
+var dcdata = new Array(rsBlocks.length);
+var ecdata = new Array(rsBlocks.length);
+for (var r = 0; r < rsBlocks.length; r += 1) {
+var dcCount = rsBlocks[r].dataCount;
+var ecCount = rsBlocks[r].totalCount - dcCount;
+maxDcCount = Math.max(maxDcCount, dcCount);
+maxEcCount = Math.max(maxEcCount, ecCount);
+dcdata[r] = new Array(dcCount);
+for (var i = 0; i < dcdata[r].length; i += 1) {
+dcdata[r][i] = 0xff & buffer.getBuffer()[i + offset];
+}
+offset += dcCount;
+var rsPoly = QRUtil.getErrorCorrectPolynomial(ecCount);
+var rawPoly = qrPolynomial(dcdata[r], rsPoly.getLength() - 1);
+var modPoly = rawPoly.mod(rsPoly);
+ecdata[r] = new Array(rsPoly.getLength() - 1);
+for (var i = 0; i < ecdata[r].length; i += 1) {
+var modIndex = i + modPoly.getLength() - ecdata[r].length;
+ecdata[r][i] = (modIndex >= 0)? modPoly.getAt(modIndex) : 0;
+}
+}
+var totalCodeCount = 0;
+for (var i = 0; i < rsBlocks.length; i += 1) {
+totalCodeCount += rsBlocks[i].totalCount;
+}
+var data = new Array(totalCodeCount);
+var index = 0;
+for (var i = 0; i < maxDcCount; i += 1) {
+for (var r = 0; r < rsBlocks.length; r += 1) {
+if (i < dcdata[r].length) {
+data[index] = dcdata[r][i];
+index += 1;
+}
+}
+}
+for (var i = 0; i < maxEcCount; i += 1) {
+for (var r = 0; r < rsBlocks.length; r += 1) {
+if (i < ecdata[r].length) {
+data[index] = ecdata[r][i];
+index += 1;
+}
+}
+}
+return data;
+};
+var createData = function(typeNumber, errorCorrectionLevel, dataList) {
+var rsBlocks = QRRSBlock.getRSBlocks(typeNumber, errorCorrectionLevel);
+var buffer = qrBitBuffer();
+for (var i = 0; i < dataList.length; i += 1) {
+var data = dataList[i];
+buffer.put(data.getMode(), 4);
+buffer.put(data.getLength(), QRUtil.getLengthInBits(data.getMode(), typeNumber) );
+data.write(buffer);
+}
+var totalDataCount = 0;
+for (var i = 0; i < rsBlocks.length; i += 1) {
+totalDataCount += rsBlocks[i].dataCount;
+}
+if (buffer.getLengthInBits() > totalDataCount * 8) {
+throw 'code length overflow. ('
++ buffer.getLengthInBits()
++ '>'
++ totalDataCount * 8
++ ')';
+}
+if (buffer.getLengthInBits() + 4 <= totalDataCount * 8) {
+buffer.put(0, 4);
+}
+while (buffer.getLengthInBits() % 8 != 0) {
+buffer.putBit(false);
+}
+while (true) {
+if (buffer.getLengthInBits() >= totalDataCount * 8) {
+break;
+}
+buffer.put(PAD0, 8);
+if (buffer.getLengthInBits() >= totalDataCount * 8) {
+break;
+}
+buffer.put(PAD1, 8);
+}
+return createBytes(buffer, rsBlocks);
+};
+_this.addData = function(data, mode) {
+mode = mode || 'Byte';
+var newData = null;
+switch(mode) {
+case 'Numeric' :
+newData = qrNumber(data);
+break;
+case 'Alphanumeric' :
+newData = qrAlphaNum(data);
+break;
+case 'Byte' :
+newData = qr8BitByte(data);
+break;
+case 'Kanji' :
+newData = qrKanji(data);
+break;
+default :
+throw 'mode:' + mode;
+}
+_dataList.push(newData);
+_dataCache = null;
+};
+_this.isDark = function(row, col) {
+if (row < 0 || _moduleCount <= row || col < 0 || _moduleCount <= col) {
+throw row + ',' + col;
+}
+return _modules[row][col];
+};
+_this.getModuleCount = function() {
+return _moduleCount;
+};
+_this.make = function() {
+if (_typeNumber < 1) {
+var typeNumber = 1;
+for (; typeNumber < 40; typeNumber++) {
+var rsBlocks = QRRSBlock.getRSBlocks(typeNumber, _errorCorrectionLevel);
+var buffer = qrBitBuffer();
+for (var i = 0; i < _dataList.length; i++) {
+var data = _dataList[i];
+buffer.put(data.getMode(), 4);
+buffer.put(data.getLength(), QRUtil.getLengthInBits(data.getMode(), typeNumber) );
+data.write(buffer);
+}
+var totalDataCount = 0;
+for (var i = 0; i < rsBlocks.length; i++) {
+totalDataCount += rsBlocks[i].dataCount;
+}
+if (buffer.getLengthInBits() <= totalDataCount * 8) {
+break;
+}
+}
+_typeNumber = typeNumber;
+}
+makeImpl(false, getBestMaskPattern() );
+};
+_this.createTableTag = function(cellSize, margin) {
+cellSize = cellSize || 2;
+margin = (typeof margin == 'undefined')? cellSize * 4 : margin;
+var qrHtml = '';
+qrHtml += '<table style="';
+qrHtml += ' border-width: 0px; border-style: none;';
+qrHtml += ' border-collapse: collapse;';
+qrHtml += ' padding: 0px; margin: ' + margin + 'px;';
+qrHtml += '">';
+qrHtml += '<tbody>';
+for (var r = 0; r < _this.getModuleCount(); r += 1) {
+qrHtml += '<tr>';
+for (var c = 0; c < _this.getModuleCount(); c += 1) {
+qrHtml += '<td style="';
+qrHtml += ' border-width: 0px; border-style: none;';
+qrHtml += ' border-collapse: collapse;';
+qrHtml += ' padding: 0px; margin: 0px;';
+qrHtml += ' width: ' + cellSize + 'px;';
+qrHtml += ' height: ' + cellSize + 'px;';
+qrHtml += ' background-color: ';
+qrHtml += _this.isDark(r, c)? '#000000' : '#ffffff';
+qrHtml += ';';
+qrHtml += '"/>';
+}
+qrHtml += '</tr>';
+}
+qrHtml += '</tbody>';
+qrHtml += '</table>';
+return qrHtml;
+};
+_this.createSvgTag = function(cellSize, margin, alt, title) {
+var opts = {};
+if (typeof arguments[0] == 'object') {
+opts = arguments[0];
+cellSize = opts.cellSize;
+margin = opts.margin;
+alt = opts.alt;
+title = opts.title;
+}
+cellSize = cellSize || 2;
+margin = (typeof margin == 'undefined')? cellSize * 4 : margin;
+alt = (typeof alt === 'string') ? {text: alt} : alt || {};
+alt.text = alt.text || null;
+alt.id = (alt.text) ? alt.id || 'qrcode-description' : null;
+title = (typeof title === 'string') ? {text: title} : title || {};
+title.text = title.text || null;
+title.id = (title.text) ? title.id || 'qrcode-title' : null;
+var size = _this.getModuleCount() * cellSize + margin * 2;
+var c, mc, r, mr, qrSvg='', rect;
+rect = 'l' + cellSize + ',0 0,' + cellSize +
+' -' + cellSize + ',0 0,-' + cellSize + 'z ';
+qrSvg += '<svg version="1.1" xmlns="http://www.w3.org/2000/svg"';
+qrSvg += !opts.scalable ? ' width="' + size + 'px" height="' + size + 'px"' : '';
+qrSvg += ' viewBox="0 0 ' + size + ' ' + size + '" ';
+qrSvg += ' preserveAspectRatio="xMinYMin meet"';
+qrSvg += (title.text || alt.text) ? ' role="img" aria-labelledby="' +
+escapeXml([title.id, alt.id].join(' ').trim() ) + '"' : '';
+qrSvg += '>';
+qrSvg += (title.text) ? '<title id="' + escapeXml(title.id) + '">' +
+escapeXml(title.text) + '</title>' : '';
+qrSvg += (alt.text) ? '<description id="' + escapeXml(alt.id) + '">' +
+escapeXml(alt.text) + '</description>' : '';
+qrSvg += '<rect width="100%" height="100%" fill="white" cx="0" cy="0"/>';
+qrSvg += '<path d="';
+for (r = 0; r < _this.getModuleCount(); r += 1) {
+mr = r * cellSize + margin;
+for (c = 0; c < _this.getModuleCount(); c += 1) {
+if (_this.isDark(r, c) ) {
+mc = c*cellSize+margin;
+qrSvg += 'M' + mc + ',' + mr + rect;
+}
+}
+}
+qrSvg += '" stroke="transparent" fill="black"/>';
+qrSvg += '</svg>';
+return qrSvg;
+};
+_this.createDataURL = function(cellSize, margin) {
+cellSize = cellSize || 2;
+margin = (typeof margin == 'undefined')? cellSize * 4 : margin;
+var size = _this.getModuleCount() * cellSize + margin * 2;
+var min = margin;
+var max = size - margin;
+return createDataURL(size, size, function(x, y) {
+if (min <= x && x < max && min <= y && y < max) {
+var c = Math.floor( (x - min) / cellSize);
+var r = Math.floor( (y - min) / cellSize);
+return _this.isDark(r, c)? 0 : 1;
+} else {
+return 1;
+}
+} );
+};
+_this.createImgTag = function(cellSize, margin, alt) {
+cellSize = cellSize || 2;
+margin = (typeof margin == 'undefined')? cellSize * 4 : margin;
+var size = _this.getModuleCount() * cellSize + margin * 2;
+var img = '';
+img += '<img';
+img += '\u0020src="';
+img += _this.createDataURL(cellSize, margin);
+img += '"';
+img += '\u0020width="';
+img += size;
+img += '"';
+img += '\u0020height="';
+img += size;
+img += '"';
+if (alt) {
+img += '\u0020alt="';
+img += escapeXml(alt);
+img += '"';
+}
+img += '/>';
+return img;
+};
+var escapeXml = function(s) {
+var escaped = '';
+for (var i = 0; i < s.length; i += 1) {
+var c = s.charAt(i);
+switch(c) {
+case '<': escaped += '&lt;'; break;
+case '>': escaped += '&gt;'; break;
+case '&': escaped += '&amp;'; break;
+case '"': escaped += '&quot;'; break;
+default : escaped += c; break;
+}
+}
+return escaped;
+};
+var _createHalfASCII = function(margin) {
+var cellSize = 1;
+margin = (typeof margin == 'undefined')? cellSize * 2 : margin;
+var size = _this.getModuleCount() * cellSize + margin * 2;
+var min = margin;
+var max = size - margin;
+var y, x, r1, r2, p;
+var blocks = {
+'██': '█',
+'█ ': '▀',
+' █': '▄',
+'  ': ' '
+};
+var blocksLastLineNoMargin = {
+'██': '▀',
+'█ ': '▀',
+' █': ' ',
+'  ': ' '
+};
+var ascii = '';
+for (y = 0; y < size; y += 2) {
+r1 = Math.floor((y - min) / cellSize);
+r2 = Math.floor((y + 1 - min) / cellSize);
+for (x = 0; x < size; x += 1) {
+p = '█';
+if (min <= x && x < max && min <= y && y < max && _this.isDark(r1, Math.floor((x - min) / cellSize))) {
+p = ' ';
+}
+if (min <= x && x < max && min <= y+1 && y+1 < max && _this.isDark(r2, Math.floor((x - min) / cellSize))) {
+p += ' ';
+}
+else {
+p += '█';
+}
+ascii += (margin < 1 && y+1 >= max) ? blocksLastLineNoMargin[p] : blocks[p];
+}
+ascii += '\n';
+}
+if (size % 2 && margin > 0) {
+return ascii.substring(0, ascii.length - size - 1) + Array(size+1).join('▀');
+}
+return ascii.substring(0, ascii.length-1);
+};
+_this.createASCII = function(cellSize, margin) {
+cellSize = cellSize || 1;
+if (cellSize < 2) {
+return _createHalfASCII(margin);
+}
+cellSize -= 1;
+margin = (typeof margin == 'undefined')? cellSize * 2 : margin;
+var size = _this.getModuleCount() * cellSize + margin * 2;
+var min = margin;
+var max = size - margin;
+var y, x, r, p;
+var white = Array(cellSize+1).join('██');
+var black = Array(cellSize+1).join('  ');
+var ascii = '';
+var line = '';
+for (y = 0; y < size; y += 1) {
+r = Math.floor( (y - min) / cellSize);
+line = '';
+for (x = 0; x < size; x += 1) {
+p = 1;
+if (min <= x && x < max && min <= y && y < max && _this.isDark(r, Math.floor((x - min) / cellSize))) {
+p = 0;
+}
+line += p ? white : black;
+}
+for (r = 0; r < cellSize; r += 1) {
+ascii += line + '\n';
+}
+}
+return ascii.substring(0, ascii.length-1);
+};
+_this.renderTo2dContext = function(context, cellSize) {
+cellSize = cellSize || 2;
+var length = _this.getModuleCount();
+for (var row = 0; row < length; row++) {
+for (var col = 0; col < length; col++) {
+context.fillStyle = _this.isDark(row, col) ? 'black' : 'white';
+context.fillRect(col * cellSize, row * cellSize, cellSize, cellSize);
+}
+}
+}
+return _this;
+};
+qrcode.stringToBytesFuncs = {
+'default' : function(s) {
+var bytes = [];
+for (var i = 0; i < s.length; i += 1) {
+var c = s.charCodeAt(i);
+bytes.push(c & 0xff);
+}
+return bytes;
+}
+};
+qrcode.stringToBytes = qrcode.stringToBytesFuncs['default'];
+qrcode.createStringToBytes = function(unicodeData, numChars) {
+var unicodeMap = function() {
+var bin = base64DecodeInputStream(unicodeData);
+var read = function() {
+var b = bin.read();
+if (b == -1) throw 'eof';
+return b;
+};
+var count = 0;
+var unicodeMap = {};
+while (true) {
+var b0 = bin.read();
+if (b0 == -1) break;
+var b1 = read();
+var b2 = read();
+var b3 = read();
+var k = String.fromCharCode( (b0 << 8) | b1);
+var v = (b2 << 8) | b3;
+unicodeMap[k] = v;
+count += 1;
+}
+if (count != numChars) {
+throw count + ' != ' + numChars;
+}
+return unicodeMap;
+}();
+var unknownChar = '?'.charCodeAt(0);
+return function(s) {
+var bytes = [];
+for (var i = 0; i < s.length; i += 1) {
+var c = s.charCodeAt(i);
+if (c < 128) {
+bytes.push(c);
+} else {
+var b = unicodeMap[s.charAt(i)];
+if (typeof b == 'number') {
+if ( (b & 0xff) == b) {
+bytes.push(b);
+} else {
+bytes.push(b >>> 8);
+bytes.push(b & 0xff);
+}
+} else {
+bytes.push(unknownChar);
+}
+}
+}
+return bytes;
+};
+};
+var QRMode = {
+MODE_NUMBER :    1 << 0,
+MODE_ALPHA_NUM : 1 << 1,
+MODE_8BIT_BYTE : 1 << 2,
+MODE_KANJI :     1 << 3
+};
+var QRErrorCorrectionLevel = {
+L : 1,
+M : 0,
+Q : 3,
+H : 2
+};
+var QRMaskPattern = {
+PATTERN000 : 0,
+PATTERN001 : 1,
+PATTERN010 : 2,
+PATTERN011 : 3,
+PATTERN100 : 4,
+PATTERN101 : 5,
+PATTERN110 : 6,
+PATTERN111 : 7
+};
+var QRUtil = function() {
+var PATTERN_POSITION_TABLE = [
+[],
+[6, 18],
+[6, 22],
+[6, 26],
+[6, 30],
+[6, 34],
+[6, 22, 38],
+[6, 24, 42],
+[6, 26, 46],
+[6, 28, 50],
+[6, 30, 54],
+[6, 32, 58],
+[6, 34, 62],
+[6, 26, 46, 66],
+[6, 26, 48, 70],
+[6, 26, 50, 74],
+[6, 30, 54, 78],
+[6, 30, 56, 82],
+[6, 30, 58, 86],
+[6, 34, 62, 90],
+[6, 28, 50, 72, 94],
+[6, 26, 50, 74, 98],
+[6, 30, 54, 78, 102],
+[6, 28, 54, 80, 106],
+[6, 32, 58, 84, 110],
+[6, 30, 58, 86, 114],
+[6, 34, 62, 90, 118],
+[6, 26, 50, 74, 98, 122],
+[6, 30, 54, 78, 102, 126],
+[6, 26, 52, 78, 104, 130],
+[6, 30, 56, 82, 108, 134],
+[6, 34, 60, 86, 112, 138],
+[6, 30, 58, 86, 114, 142],
+[6, 34, 62, 90, 118, 146],
+[6, 30, 54, 78, 102, 126, 150],
+[6, 24, 50, 76, 102, 128, 154],
+[6, 28, 54, 80, 106, 132, 158],
+[6, 32, 58, 84, 110, 136, 162],
+[6, 26, 54, 82, 110, 138, 166],
+[6, 30, 58, 86, 114, 142, 170]
+];
+var G15 = (1 << 10) | (1 << 8) | (1 << 5) | (1 << 4) | (1 << 2) | (1 << 1) | (1 << 0);
+var G18 = (1 << 12) | (1 << 11) | (1 << 10) | (1 << 9) | (1 << 8) | (1 << 5) | (1 << 2) | (1 << 0);
+var G15_MASK = (1 << 14) | (1 << 12) | (1 << 10) | (1 << 4) | (1 << 1);
+var _this = {};
+var getBCHDigit = function(data) {
+var digit = 0;
+while (data != 0) {
+digit += 1;
+data >>>= 1;
+}
+return digit;
+};
+_this.getBCHTypeInfo = function(data) {
+var d = data << 10;
+while (getBCHDigit(d) - getBCHDigit(G15) >= 0) {
+d ^= (G15 << (getBCHDigit(d) - getBCHDigit(G15) ) );
+}
+return ( (data << 10) | d) ^ G15_MASK;
+};
+_this.getBCHTypeNumber = function(data) {
+var d = data << 12;
+while (getBCHDigit(d) - getBCHDigit(G18) >= 0) {
+d ^= (G18 << (getBCHDigit(d) - getBCHDigit(G18) ) );
+}
+return (data << 12) | d;
+};
+_this.getPatternPosition = function(typeNumber) {
+return PATTERN_POSITION_TABLE[typeNumber - 1];
+};
+_this.getMaskFunction = function(maskPattern) {
+switch (maskPattern) {
+case QRMaskPattern.PATTERN000 :
+return function(i, j) { return (i + j) % 2 == 0; };
+case QRMaskPattern.PATTERN001 :
+return function(i, j) { return i % 2 == 0; };
+case QRMaskPattern.PATTERN010 :
+return function(i, j) { return j % 3 == 0; };
+case QRMaskPattern.PATTERN011 :
+return function(i, j) { return (i + j) % 3 == 0; };
+case QRMaskPattern.PATTERN100 :
+return function(i, j) { return (Math.floor(i / 2) + Math.floor(j / 3) ) % 2 == 0; };
+case QRMaskPattern.PATTERN101 :
+return function(i, j) { return (i * j) % 2 + (i * j) % 3 == 0; };
+case QRMaskPattern.PATTERN110 :
+return function(i, j) { return ( (i * j) % 2 + (i * j) % 3) % 2 == 0; };
+case QRMaskPattern.PATTERN111 :
+return function(i, j) { return ( (i * j) % 3 + (i + j) % 2) % 2 == 0; };
+default :
+throw 'bad maskPattern:' + maskPattern;
+}
+};
+_this.getErrorCorrectPolynomial = function(errorCorrectLength) {
+var a = qrPolynomial([1], 0);
+for (var i = 0; i < errorCorrectLength; i += 1) {
+a = a.multiply(qrPolynomial([1, QRMath.gexp(i)], 0) );
+}
+return a;
+};
+_this.getLengthInBits = function(mode, type) {
+if (1 <= type && type < 10) {
+switch(mode) {
+case QRMode.MODE_NUMBER    : return 10;
+case QRMode.MODE_ALPHA_NUM : return 9;
+case QRMode.MODE_8BIT_BYTE : return 8;
+case QRMode.MODE_KANJI     : return 8;
+default :
+throw 'mode:' + mode;
+}
+} else if (type < 27) {
+switch(mode) {
+case QRMode.MODE_NUMBER    : return 12;
+case QRMode.MODE_ALPHA_NUM : return 11;
+case QRMode.MODE_8BIT_BYTE : return 16;
+case QRMode.MODE_KANJI     : return 10;
+default :
+throw 'mode:' + mode;
+}
+} else if (type < 41) {
+switch(mode) {
+case QRMode.MODE_NUMBER    : return 14;
+case QRMode.MODE_ALPHA_NUM : return 13;
+case QRMode.MODE_8BIT_BYTE : return 16;
+case QRMode.MODE_KANJI     : return 12;
+default :
+throw 'mode:' + mode;
+}
+} else {
+throw 'type:' + type;
+}
+};
+_this.getLostPoint = function(qrcode) {
+var moduleCount = qrcode.getModuleCount();
+var lostPoint = 0;
+for (var row = 0; row < moduleCount; row += 1) {
+for (var col = 0; col < moduleCount; col += 1) {
+var sameCount = 0;
+var dark = qrcode.isDark(row, col);
+for (var r = -1; r <= 1; r += 1) {
+if (row + r < 0 || moduleCount <= row + r) {
+continue;
+}
+for (var c = -1; c <= 1; c += 1) {
+if (col + c < 0 || moduleCount <= col + c) {
+continue;
+}
+if (r == 0 && c == 0) {
+continue;
+}
+if (dark == qrcode.isDark(row + r, col + c) ) {
+sameCount += 1;
+}
+}
+}
+if (sameCount > 5) {
+lostPoint += (3 + sameCount - 5);
+}
+}
+};
+for (var row = 0; row < moduleCount - 1; row += 1) {
+for (var col = 0; col < moduleCount - 1; col += 1) {
+var count = 0;
+if (qrcode.isDark(row, col) ) count += 1;
+if (qrcode.isDark(row + 1, col) ) count += 1;
+if (qrcode.isDark(row, col + 1) ) count += 1;
+if (qrcode.isDark(row + 1, col + 1) ) count += 1;
+if (count == 0 || count == 4) {
+lostPoint += 3;
+}
+}
+}
+for (var row = 0; row < moduleCount; row += 1) {
+for (var col = 0; col < moduleCount - 6; col += 1) {
+if (qrcode.isDark(row, col)
+&& !qrcode.isDark(row, col + 1)
+&&  qrcode.isDark(row, col + 2)
+&&  qrcode.isDark(row, col + 3)
+&&  qrcode.isDark(row, col + 4)
+&& !qrcode.isDark(row, col + 5)
+&&  qrcode.isDark(row, col + 6) ) {
+lostPoint += 40;
+}
+}
+}
+for (var col = 0; col < moduleCount; col += 1) {
+for (var row = 0; row < moduleCount - 6; row += 1) {
+if (qrcode.isDark(row, col)
+&& !qrcode.isDark(row + 1, col)
+&&  qrcode.isDark(row + 2, col)
+&&  qrcode.isDark(row + 3, col)
+&&  qrcode.isDark(row + 4, col)
+&& !qrcode.isDark(row + 5, col)
+&&  qrcode.isDark(row + 6, col) ) {
+lostPoint += 40;
+}
+}
+}
+var darkCount = 0;
+for (var col = 0; col < moduleCount; col += 1) {
+for (var row = 0; row < moduleCount; row += 1) {
+if (qrcode.isDark(row, col) ) {
+darkCount += 1;
+}
+}
+}
+var ratio = Math.abs(100 * darkCount / moduleCount / moduleCount - 50) / 5;
+lostPoint += ratio * 10;
+return lostPoint;
+};
+return _this;
+}();
+var QRMath = function() {
+var EXP_TABLE = new Array(256);
+var LOG_TABLE = new Array(256);
+for (var i = 0; i < 8; i += 1) {
+EXP_TABLE[i] = 1 << i;
+}
+for (var i = 8; i < 256; i += 1) {
+EXP_TABLE[i] = EXP_TABLE[i - 4]
+^ EXP_TABLE[i - 5]
+^ EXP_TABLE[i - 6]
+^ EXP_TABLE[i - 8];
+}
+for (var i = 0; i < 255; i += 1) {
+LOG_TABLE[EXP_TABLE[i] ] = i;
+}
+var _this = {};
+_this.glog = function(n) {
+if (n < 1) {
+throw 'glog(' + n + ')';
+}
+return LOG_TABLE[n];
+};
+_this.gexp = function(n) {
+while (n < 0) {
+n += 255;
+}
+while (n >= 256) {
+n -= 255;
+}
+return EXP_TABLE[n];
+};
+return _this;
+}();
+function qrPolynomial(num, shift) {
+if (typeof num.length == 'undefined') {
+throw num.length + '/' + shift;
+}
+var _num = function() {
+var offset = 0;
+while (offset < num.length && num[offset] == 0) {
+offset += 1;
+}
+var _num = new Array(num.length - offset + shift);
+for (var i = 0; i < num.length - offset; i += 1) {
+_num[i] = num[i + offset];
+}
+return _num;
+}();
+var _this = {};
+_this.getAt = function(index) {
+return _num[index];
+};
+_this.getLength = function() {
+return _num.length;
+};
+_this.multiply = function(e) {
+var num = new Array(_this.getLength() + e.getLength() - 1);
+for (var i = 0; i < _this.getLength(); i += 1) {
+for (var j = 0; j < e.getLength(); j += 1) {
+num[i + j] ^= QRMath.gexp(QRMath.glog(_this.getAt(i) ) + QRMath.glog(e.getAt(j) ) );
+}
+}
+return qrPolynomial(num, 0);
+};
+_this.mod = function(e) {
+if (_this.getLength() - e.getLength() < 0) {
+return _this;
+}
+var ratio = QRMath.glog(_this.getAt(0) ) - QRMath.glog(e.getAt(0) );
+var num = new Array(_this.getLength() );
+for (var i = 0; i < _this.getLength(); i += 1) {
+num[i] = _this.getAt(i);
+}
+for (var i = 0; i < e.getLength(); i += 1) {
+num[i] ^= QRMath.gexp(QRMath.glog(e.getAt(i) ) + ratio);
+}
+return qrPolynomial(num, 0).mod(e);
+};
+return _this;
+};
+var QRRSBlock = function() {
+var RS_BLOCK_TABLE = [
+[1, 26, 19],
+[1, 26, 16],
+[1, 26, 13],
+[1, 26, 9],
+[1, 44, 34],
+[1, 44, 28],
+[1, 44, 22],
+[1, 44, 16],
+[1, 70, 55],
+[1, 70, 44],
+[2, 35, 17],
+[2, 35, 13],
+[1, 100, 80],
+[2, 50, 32],
+[2, 50, 24],
+[4, 25, 9],
+[1, 134, 108],
+[2, 67, 43],
+[2, 33, 15, 2, 34, 16],
+[2, 33, 11, 2, 34, 12],
+[2, 86, 68],
+[4, 43, 27],
+[4, 43, 19],
+[4, 43, 15],
+[2, 98, 78],
+[4, 49, 31],
+[2, 32, 14, 4, 33, 15],
+[4, 39, 13, 1, 40, 14],
+[2, 121, 97],
+[2, 60, 38, 2, 61, 39],
+[4, 40, 18, 2, 41, 19],
+[4, 40, 14, 2, 41, 15],
+[2, 146, 116],
+[3, 58, 36, 2, 59, 37],
+[4, 36, 16, 4, 37, 17],
+[4, 36, 12, 4, 37, 13],
+[2, 86, 68, 2, 87, 69],
+[4, 69, 43, 1, 70, 44],
+[6, 43, 19, 2, 44, 20],
+[6, 43, 15, 2, 44, 16],
+[4, 101, 81],
+[1, 80, 50, 4, 81, 51],
+[4, 50, 22, 4, 51, 23],
+[3, 36, 12, 8, 37, 13],
+[2, 116, 92, 2, 117, 93],
+[6, 58, 36, 2, 59, 37],
+[4, 46, 20, 6, 47, 21],
+[7, 42, 14, 4, 43, 15],
+[4, 133, 107],
+[8, 59, 37, 1, 60, 38],
+[8, 44, 20, 4, 45, 21],
+[12, 33, 11, 4, 34, 12],
+[3, 145, 115, 1, 146, 116],
+[4, 64, 40, 5, 65, 41],
+[11, 36, 16, 5, 37, 17],
+[11, 36, 12, 5, 37, 13],
+[5, 109, 87, 1, 110, 88],
+[5, 65, 41, 5, 66, 42],
+[5, 54, 24, 7, 55, 25],
+[11, 36, 12, 7, 37, 13],
+[5, 122, 98, 1, 123, 99],
+[7, 73, 45, 3, 74, 46],
+[15, 43, 19, 2, 44, 20],
+[3, 45, 15, 13, 46, 16],
+[1, 135, 107, 5, 136, 108],
+[10, 74, 46, 1, 75, 47],
+[1, 50, 22, 15, 51, 23],
+[2, 42, 14, 17, 43, 15],
+[5, 150, 120, 1, 151, 121],
+[9, 69, 43, 4, 70, 44],
+[17, 50, 22, 1, 51, 23],
+[2, 42, 14, 19, 43, 15],
+[3, 141, 113, 4, 142, 114],
+[3, 70, 44, 11, 71, 45],
+[17, 47, 21, 4, 48, 22],
+[9, 39, 13, 16, 40, 14],
+[3, 135, 107, 5, 136, 108],
+[3, 67, 41, 13, 68, 42],
+[15, 54, 24, 5, 55, 25],
+[15, 43, 15, 10, 44, 16],
+[4, 144, 116, 4, 145, 117],
+[17, 68, 42],
+[17, 50, 22, 6, 51, 23],
+[19, 46, 16, 6, 47, 17],
+[2, 139, 111, 7, 140, 112],
+[17, 74, 46],
+[7, 54, 24, 16, 55, 25],
+[34, 37, 13],
+[4, 151, 121, 5, 152, 122],
+[4, 75, 47, 14, 76, 48],
+[11, 54, 24, 14, 55, 25],
+[16, 45, 15, 14, 46, 16],
+[6, 147, 117, 4, 148, 118],
+[6, 73, 45, 14, 74, 46],
+[11, 54, 24, 16, 55, 25],
+[30, 46, 16, 2, 47, 17],
+[8, 132, 106, 4, 133, 107],
+[8, 75, 47, 13, 76, 48],
+[7, 54, 24, 22, 55, 25],
+[22, 45, 15, 13, 46, 16],
+[10, 142, 114, 2, 143, 115],
+[19, 74, 46, 4, 75, 47],
+[28, 50, 22, 6, 51, 23],
+[33, 46, 16, 4, 47, 17],
+[8, 152, 122, 4, 153, 123],
+[22, 73, 45, 3, 74, 46],
+[8, 53, 23, 26, 54, 24],
+[12, 45, 15, 28, 46, 16],
+[3, 147, 117, 10, 148, 118],
+[3, 73, 45, 23, 74, 46],
+[4, 54, 24, 31, 55, 25],
+[11, 45, 15, 31, 46, 16],
+[7, 146, 116, 7, 147, 117],
+[21, 73, 45, 7, 74, 46],
+[1, 53, 23, 37, 54, 24],
+[19, 45, 15, 26, 46, 16],
+[5, 145, 115, 10, 146, 116],
+[19, 75, 47, 10, 76, 48],
+[15, 54, 24, 25, 55, 25],
+[23, 45, 15, 25, 46, 16],
+[13, 145, 115, 3, 146, 116],
+[2, 74, 46, 29, 75, 47],
+[42, 54, 24, 1, 55, 25],
+[23, 45, 15, 28, 46, 16],
+[17, 145, 115],
+[10, 74, 46, 23, 75, 47],
+[10, 54, 24, 35, 55, 25],
+[19, 45, 15, 35, 46, 16],
+[17, 145, 115, 1, 146, 116],
+[14, 74, 46, 21, 75, 47],
+[29, 54, 24, 19, 55, 25],
+[11, 45, 15, 46, 46, 16],
+[13, 145, 115, 6, 146, 116],
+[14, 74, 46, 23, 75, 47],
+[44, 54, 24, 7, 55, 25],
+[59, 46, 16, 1, 47, 17],
+[12, 151, 121, 7, 152, 122],
+[12, 75, 47, 26, 76, 48],
+[39, 54, 24, 14, 55, 25],
+[22, 45, 15, 41, 46, 16],
+[6, 151, 121, 14, 152, 122],
+[6, 75, 47, 34, 76, 48],
+[46, 54, 24, 10, 55, 25],
+[2, 45, 15, 64, 46, 16],
+[17, 152, 122, 4, 153, 123],
+[29, 74, 46, 14, 75, 47],
+[49, 54, 24, 10, 55, 25],
+[24, 45, 15, 46, 46, 16],
+[4, 152, 122, 18, 153, 123],
+[13, 74, 46, 32, 75, 47],
+[48, 54, 24, 14, 55, 25],
+[42, 45, 15, 32, 46, 16],
+[20, 147, 117, 4, 148, 118],
+[40, 75, 47, 7, 76, 48],
+[43, 54, 24, 22, 55, 25],
+[10, 45, 15, 67, 46, 16],
+[19, 148, 118, 6, 149, 119],
+[18, 75, 47, 31, 76, 48],
+[34, 54, 24, 34, 55, 25],
+[20, 45, 15, 61, 46, 16]
+];
+var qrRSBlock = function(totalCount, dataCount) {
+var _this = {};
+_this.totalCount = totalCount;
+_this.dataCount = dataCount;
+return _this;
+};
+var _this = {};
+var getRsBlockTable = function(typeNumber, errorCorrectionLevel) {
+switch(errorCorrectionLevel) {
+case QRErrorCorrectionLevel.L :
+return RS_BLOCK_TABLE[(typeNumber - 1) * 4 + 0];
+case QRErrorCorrectionLevel.M :
+return RS_BLOCK_TABLE[(typeNumber - 1) * 4 + 1];
+case QRErrorCorrectionLevel.Q :
+return RS_BLOCK_TABLE[(typeNumber - 1) * 4 + 2];
+case QRErrorCorrectionLevel.H :
+return RS_BLOCK_TABLE[(typeNumber - 1) * 4 + 3];
+default :
+return undefined;
+}
+};
+_this.getRSBlocks = function(typeNumber, errorCorrectionLevel) {
+var rsBlock = getRsBlockTable(typeNumber, errorCorrectionLevel);
+if (typeof rsBlock == 'undefined') {
+throw 'bad rs block @ typeNumber:' + typeNumber +
+'/errorCorrectionLevel:' + errorCorrectionLevel;
+}
+var length = rsBlock.length / 3;
+var list = [];
+for (var i = 0; i < length; i += 1) {
+var count = rsBlock[i * 3 + 0];
+var totalCount = rsBlock[i * 3 + 1];
+var dataCount = rsBlock[i * 3 + 2];
+for (var j = 0; j < count; j += 1) {
+list.push(qrRSBlock(totalCount, dataCount) );
+}
+}
+return list;
+};
+return _this;
+}();
+var qrBitBuffer = function() {
+var _buffer = [];
+var _length = 0;
+var _this = {};
+_this.getBuffer = function() {
+return _buffer;
+};
+_this.getAt = function(index) {
+var bufIndex = Math.floor(index / 8);
+return ( (_buffer[bufIndex] >>> (7 - index % 8) ) & 1) == 1;
+};
+_this.put = function(num, length) {
+for (var i = 0; i < length; i += 1) {
+_this.putBit( ( (num >>> (length - i - 1) ) & 1) == 1);
+}
+};
+_this.getLengthInBits = function() {
+return _length;
+};
+_this.putBit = function(bit) {
+var bufIndex = Math.floor(_length / 8);
+if (_buffer.length <= bufIndex) {
+_buffer.push(0);
+}
+if (bit) {
+_buffer[bufIndex] |= (0x80 >>> (_length % 8) );
+}
+_length += 1;
+};
+return _this;
+};
+var qrNumber = function(data) {
+var _mode = QRMode.MODE_NUMBER;
+var _data = data;
+var _this = {};
+_this.getMode = function() {
+return _mode;
+};
+_this.getLength = function(buffer) {
+return _data.length;
+};
+_this.write = function(buffer) {
+var data = _data;
+var i = 0;
+while (i + 2 < data.length) {
+buffer.put(strToNum(data.substring(i, i + 3) ), 10);
+i += 3;
+}
+if (i < data.length) {
+if (data.length - i == 1) {
+buffer.put(strToNum(data.substring(i, i + 1) ), 4);
+} else if (data.length - i == 2) {
+buffer.put(strToNum(data.substring(i, i + 2) ), 7);
+}
+}
+};
+var strToNum = function(s) {
+var num = 0;
+for (var i = 0; i < s.length; i += 1) {
+num = num * 10 + chatToNum(s.charAt(i) );
+}
+return num;
+};
+var chatToNum = function(c) {
+if ('0' <= c && c <= '9') {
+return c.charCodeAt(0) - '0'.charCodeAt(0);
+}
+throw 'illegal char :' + c;
+};
+return _this;
+};
+var qrAlphaNum = function(data) {
+var _mode = QRMode.MODE_ALPHA_NUM;
+var _data = data;
+var _this = {};
+_this.getMode = function() {
+return _mode;
+};
+_this.getLength = function(buffer) {
+return _data.length;
+};
+_this.write = function(buffer) {
+var s = _data;
+var i = 0;
+while (i + 1 < s.length) {
+buffer.put(
+getCode(s.charAt(i) ) * 45 +
+getCode(s.charAt(i + 1) ), 11);
+i += 2;
+}
+if (i < s.length) {
+buffer.put(getCode(s.charAt(i) ), 6);
+}
+};
+var getCode = function(c) {
+if ('0' <= c && c <= '9') {
+return c.charCodeAt(0) - '0'.charCodeAt(0);
+} else if ('A' <= c && c <= 'Z') {
+return c.charCodeAt(0) - 'A'.charCodeAt(0) + 10;
+} else {
+switch (c) {
+case ' ' : return 36;
+case '$' : return 37;
+case '%' : return 38;
+case '*' : return 39;
+case '+' : return 40;
+case '-' : return 41;
+case '.' : return 42;
+case '/' : return 43;
+case ':' : return 44;
+default :
+throw 'illegal char :' + c;
+}
+}
+};
+return _this;
+};
+var qr8BitByte = function(data) {
+var _mode = QRMode.MODE_8BIT_BYTE;
+var _data = data;
+var _bytes = qrcode.stringToBytes(data);
+var _this = {};
+_this.getMode = function() {
+return _mode;
+};
+_this.getLength = function(buffer) {
+return _bytes.length;
+};
+_this.write = function(buffer) {
+for (var i = 0; i < _bytes.length; i += 1) {
+buffer.put(_bytes[i], 8);
+}
+};
+return _this;
+};
+var qrKanji = function(data) {
+var _mode = QRMode.MODE_KANJI;
+var _data = data;
+var stringToBytes = qrcode.stringToBytesFuncs['SJIS'];
+if (!stringToBytes) {
+throw 'sjis not supported.';
+}
+!function(c, code) {
+var test = stringToBytes(c);
+if (test.length != 2 || ( (test[0] << 8) | test[1]) != code) {
+throw 'sjis not supported.';
+}
+}('\u53cb', 0x9746);
+var _bytes = stringToBytes(data);
+var _this = {};
+_this.getMode = function() {
+return _mode;
+};
+_this.getLength = function(buffer) {
+return ~~(_bytes.length / 2);
+};
+_this.write = function(buffer) {
+var data = _bytes;
+var i = 0;
+while (i + 1 < data.length) {
+var c = ( (0xff & data[i]) << 8) | (0xff & data[i + 1]);
+if (0x8140 <= c && c <= 0x9FFC) {
+c -= 0x8140;
+} else if (0xE040 <= c && c <= 0xEBBF) {
+c -= 0xC140;
+} else {
+throw 'illegal char at ' + (i + 1) + '/' + c;
+}
+c = ( (c >>> 8) & 0xff) * 0xC0 + (c & 0xff);
+buffer.put(c, 13);
+i += 2;
+}
+if (i < data.length) {
+throw 'illegal char at ' + (i + 1);
+}
+};
+return _this;
+};
+var byteArrayOutputStream = function() {
+var _bytes = [];
+var _this = {};
+_this.writeByte = function(b) {
+_bytes.push(b & 0xff);
+};
+_this.writeShort = function(i) {
+_this.writeByte(i);
+_this.writeByte(i >>> 8);
+};
+_this.writeBytes = function(b, off, len) {
+off = off || 0;
+len = len || b.length;
+for (var i = 0; i < len; i += 1) {
+_this.writeByte(b[i + off]);
+}
+};
+_this.writeString = function(s) {
+for (var i = 0; i < s.length; i += 1) {
+_this.writeByte(s.charCodeAt(i) );
+}
+};
+_this.toByteArray = function() {
+return _bytes;
+};
+_this.toString = function() {
+var s = '';
+s += '[';
+for (var i = 0; i < _bytes.length; i += 1) {
+if (i > 0) {
+s += ',';
+}
+s += _bytes[i];
+}
+s += ']';
+return s;
+};
+return _this;
+};
+var base64EncodeOutputStream = function() {
+var _buffer = 0;
+var _buflen = 0;
+var _length = 0;
+var _base64 = '';
+var _this = {};
+var writeEncoded = function(b) {
+_base64 += String.fromCharCode(encode(b & 0x3f) );
+};
+var encode = function(n) {
+if (n < 0) {
+} else if (n < 26) {
+return 0x41 + n;
+} else if (n < 52) {
+return 0x61 + (n - 26);
+} else if (n < 62) {
+return 0x30 + (n - 52);
+} else if (n == 62) {
+return 0x2b;
+} else if (n == 63) {
+return 0x2f;
+}
+throw 'n:' + n;
+};
+_this.writeByte = function(n) {
+_buffer = (_buffer << 8) | (n & 0xff);
+_buflen += 8;
+_length += 1;
+while (_buflen >= 6) {
+writeEncoded(_buffer >>> (_buflen - 6) );
+_buflen -= 6;
+}
+};
+_this.flush = function() {
+if (_buflen > 0) {
+writeEncoded(_buffer << (6 - _buflen) );
+_buffer = 0;
+_buflen = 0;
+}
+if (_length % 3 != 0) {
+var padlen = 3 - _length % 3;
+for (var i = 0; i < padlen; i += 1) {
+_base64 += '=';
+}
+}
+};
+_this.toString = function() {
+return _base64;
+};
+return _this;
+};
+var base64DecodeInputStream = function(str) {
+var _str = str;
+var _pos = 0;
+var _buffer = 0;
+var _buflen = 0;
+var _this = {};
+_this.read = function() {
+while (_buflen < 8) {
+if (_pos >= _str.length) {
+if (_buflen == 0) {
+return -1;
+}
+throw 'unexpected end of file./' + _buflen;
+}
+var c = _str.charAt(_pos);
+_pos += 1;
+if (c == '=') {
+_buflen = 0;
+return -1;
+} else if (c.match(/^\s$/) ) {
+continue;
+}
+_buffer = (_buffer << 6) | decode(c.charCodeAt(0) );
+_buflen += 6;
+}
+var n = (_buffer >>> (_buflen - 8) ) & 0xff;
+_buflen -= 8;
+return n;
+};
+var decode = function(c) {
+if (0x41 <= c && c <= 0x5a) {
+return c - 0x41;
+} else if (0x61 <= c && c <= 0x7a) {
+return c - 0x61 + 26;
+} else if (0x30 <= c && c <= 0x39) {
+return c - 0x30 + 52;
+} else if (c == 0x2b) {
+return 62;
+} else if (c == 0x2f) {
+return 63;
+} else {
+throw 'c:' + c;
+}
+};
+return _this;
+};
+var gifImage = function(width, height) {
+var _width = width;
+var _height = height;
+var _data = new Array(width * height);
+var _this = {};
+_this.setPixel = function(x, y, pixel) {
+_data[y * _width + x] = pixel;
+};
+_this.write = function(out) {
+out.writeString('GIF87a');
+out.writeShort(_width);
+out.writeShort(_height);
+out.writeByte(0x80); // 2bit
+out.writeByte(0);
+out.writeByte(0);
+out.writeByte(0x00);
+out.writeByte(0x00);
+out.writeByte(0x00);
+out.writeByte(0xff);
+out.writeByte(0xff);
+out.writeByte(0xff);
+out.writeString(',');
+out.writeShort(0);
+out.writeShort(0);
+out.writeShort(_width);
+out.writeShort(_height);
+out.writeByte(0);
+var lzwMinCodeSize = 2;
+var raster = getLZWRaster(lzwMinCodeSize);
+out.writeByte(lzwMinCodeSize);
+var offset = 0;
+while (raster.length - offset > 255) {
+out.writeByte(255);
+out.writeBytes(raster, offset, 255);
+offset += 255;
+}
+out.writeByte(raster.length - offset);
+out.writeBytes(raster, offset, raster.length - offset);
+out.writeByte(0x00);
+out.writeString(';');
+};
+var bitOutputStream = function(out) {
+var _out = out;
+var _bitLength = 0;
+var _bitBuffer = 0;
+var _this = {};
+_this.write = function(data, length) {
+if ( (data >>> length) != 0) {
+throw 'length over';
+}
+while (_bitLength + length >= 8) {
+_out.writeByte(0xff & ( (data << _bitLength) | _bitBuffer) );
+length -= (8 - _bitLength);
+data >>>= (8 - _bitLength);
+_bitBuffer = 0;
+_bitLength = 0;
+}
+_bitBuffer = (data << _bitLength) | _bitBuffer;
+_bitLength = _bitLength + length;
+};
+_this.flush = function() {
+if (_bitLength > 0) {
+_out.writeByte(_bitBuffer);
+}
+};
+return _this;
+};
+var getLZWRaster = function(lzwMinCodeSize) {
+var clearCode = 1 << lzwMinCodeSize;
+var endCode = (1 << lzwMinCodeSize) + 1;
+var bitLength = lzwMinCodeSize + 1;
+var table = lzwTable();
+for (var i = 0; i < clearCode; i += 1) {
+table.add(String.fromCharCode(i) );
+}
+table.add(String.fromCharCode(clearCode) );
+table.add(String.fromCharCode(endCode) );
+var byteOut = byteArrayOutputStream();
+var bitOut = bitOutputStream(byteOut);
+bitOut.write(clearCode, bitLength);
+var dataIndex = 0;
+var s = String.fromCharCode(_data[dataIndex]);
+dataIndex += 1;
+while (dataIndex < _data.length) {
+var c = String.fromCharCode(_data[dataIndex]);
+dataIndex += 1;
+if (table.contains(s + c) ) {
+s = s + c;
+} else {
+bitOut.write(table.indexOf(s), bitLength);
+if (table.size() < 0xfff) {
+if (table.size() == (1 << bitLength) ) {
+bitLength += 1;
+}
+table.add(s + c);
+}
+s = c;
+}
+}
+bitOut.write(table.indexOf(s), bitLength);
+bitOut.write(endCode, bitLength);
+bitOut.flush();
+return byteOut.toByteArray();
+};
+var lzwTable = function() {
+var _map = {};
+var _size = 0;
+var _this = {};
+_this.add = function(key) {
+if (_this.contains(key) ) {
+throw 'dup key:' + key;
+}
+_map[key] = _size;
+_size += 1;
+};
+_this.size = function() {
+return _size;
+};
+_this.indexOf = function(key) {
+return _map[key];
+};
+_this.contains = function(key) {
+return typeof _map[key] != 'undefined';
+};
+return _this;
+};
+return _this;
+};
+var createDataURL = function(width, height, getPixel) {
+var gif = gifImage(width, height);
+for (var y = 0; y < height; y += 1) {
+for (var x = 0; x < width; x += 1) {
+gif.setPixel(x, y, getPixel(x, y) );
+}
+}
+var b = byteArrayOutputStream();
+gif.write(b);
+var base64 = base64EncodeOutputStream();
+var bytes = b.toByteArray();
+for (var i = 0; i < bytes.length; i += 1) {
+base64.writeByte(bytes[i]);
+}
+base64.flush();
+return 'data:image/gif;base64,' + base64;
+};
+return qrcode;
+}();
+!function() {
+qrcode.stringToBytesFuncs['UTF-8'] = function(s) {
+function toUTF8Array(str) {
+var utf8 = [];
+for (var i=0; i < str.length; i++) {
+var charcode = str.charCodeAt(i);
+if (charcode < 0x80) utf8.push(charcode);
+else if (charcode < 0x800) {
+utf8.push(0xc0 | (charcode >> 6),
+0x80 | (charcode & 0x3f));
+}
+else if (charcode < 0xd800 || charcode >= 0xe000) {
+utf8.push(0xe0 | (charcode >> 12),
+0x80 | ((charcode>>6) & 0x3f),
+0x80 | (charcode & 0x3f));
+}
+else {
+i++;
+charcode = 0x10000 + (((charcode & 0x3ff)<<10)
+| (str.charCodeAt(i) & 0x3ff));
+utf8.push(0xf0 | (charcode >>18),
+0x80 | ((charcode>>12) & 0x3f),
+0x80 | ((charcode>>6) & 0x3f),
+0x80 | (charcode & 0x3f));
+}
+}
+return utf8;
+}
+return toUTF8Array(s);
+};
+}();
+(function (factory) {
+if (typeof define === 'function' && define.amd) {
+define([], factory);
+} else if (typeof exports === 'object') {
+module.exports = factory();
+}
+}(function () {
+return qrcode;
+}));
+
+/* ================= 数据层 ================= */
+/* ===== 账号体系：数据键 emenu_sim_v1_u<账号>，账号表存 emenu_sim_accts ===== */
+var LS_BASE = 'emenu_sim_v1';
+var LS_ACCTS = 'emenu_sim_accts';
+var LS_LOGIN = 'emenu_sim_login';
+
+var TABLES = ['A01','A02','A03','A04','B01','B02'];
+var ACC = '';          /* 当前账号（规范化） */
+var ACC_NAME = '';     /* 显示名（店名） */
+var GUEST_GROUP = '';  /* 扫码顾客端顶部显示的「第 N 组」 */
+var isGuest = false;   /* 扫码进入的顾客模式：隐藏商家后台 */
+
+function lsKey(){
+  if(isGuest && curTable) return LS_BASE + '_g_' + curTable + '_' + (ACC || 'guest');
+  return LS_BASE + '_u' + (ACC || 'guest');
+}
+function groupName(){ return ACC ? (ACC_NAME || ('账号 ' + ACC)) : '顾客体验'; }
+function acctMap(){
+  try{ var m = JSON.parse(localStorage.getItem(LS_ACCTS) || '{}'); return (m && typeof m === 'object' && !m.length) ? m : {}; }
+  catch(e){ return {}; }
+}
+function acctWrite(m){ try{ localStorage.setItem(LS_ACCTS, JSON.stringify(m)); return true; }catch(e){ return false; } }
+function normUser(v){
+  var s = String(v == null ? '' : v).trim();
+  s = s.replace(/[\uFF10-\uFF19]/g, function(ch){ return String.fromCharCode(ch.charCodeAt(0) - 0xFEE0); });
+  s = s.replace(/\s+/g, '').replace(/^第/, '').replace(/(小组|组)$/, '');
+  return s.toLowerCase().slice(0, 20);
+}
+function displayName(u, nm){
+  if(nm) return nm;
+  return (/^\d+$/.test(u) && u) ? ('第 ' + u + ' 组') : ('组「' + (u || '顾客') + '」');
+}
+function hashPwd(u, p){
+  var s = 'emenu$' + u + '#' + p + '#2026suzhou', a = 0x811c9dc5, b = 0x1000193, i, c;
+  for(i = 0; i < s.length; i++){
+    c = s.charCodeAt(i);
+    a = ((a ^ c) * 16777619) >>> 0;
+    b = ((b + c * 131) * 2654435761) >>> 0;
+  }
+  return a.toString(36) + b.toString(36);
+}
+function val(id){ var e = document.getElementById(id); return e ? String(e.value == null ? '' : e.value) : ''; }
+var MODS = ['少油','少盐','免葱','免蒜','加急'];
+
+function defaultState(){
+  return {
+    seq: 100,
+    cats: ['凉菜','热菜','汤羹','主食','饮品'],
+    menu: [
+      {id:'d01',cat:'凉菜',name:'桂花糖藕',emoji:'🪷',price:22,unit:'',desc:'江南传统凉菜，糯米灌藕配桂花蜜',specs:null},
+      {id:'d02',cat:'热菜',name:'松鼠桂鱼',emoji:'🐟',price:188,unit:'',desc:'苏帮菜代表，造型如松鼠，酸甜适口',specs:[{n:'半条',add:0},{n:'整条',add:0}],specPrice:{'半条':98,'整条':188}},
+      {id:'d03',cat:'汤羹',name:'莼菜银鱼羹',emoji:'🍜',price:32,unit:'/位',desc:'太湖莼菜滑嫩，羹汤鲜洁',specs:null},
+      {id:'d04',cat:'主食',name:'苏式焖肉面',emoji:'🍲',price:28,unit:'',desc:'枫镇大肉，焖煮四小时',specs:null},
+      {id:'d05',cat:'饮品',name:'碧螺春茶',emoji:'🍵',price:12,unit:'/位',desc:'苏州洞庭山明前茶',specs:null}
+    ],
+    orders: []
+  };
+}
+function load(){
+  try{
+    var raw = localStorage.getItem(lsKey());
+    if(!raw) return defaultState();
+    var s = JSON.parse(raw);
+    if(!s || !s.menu || !s.orders) return defaultState();
+    if(!s.cats || !s.cats.length){
+      s.cats = [];
+      s.menu.forEach(function(d){ if(s.cats.indexOf(d.cat)<0) s.cats.push(d.cat); });
+      if(!s.cats.length) s.cats = ['热菜'];
+    }
+    return s;
+  }catch(e){ return defaultState(); }
+}
+function allCats(){
+  var cats=(S.cats||[]).slice();
+  S.menu.forEach(function(d){ if(cats.indexOf(d.cat)<0) cats.push(d.cat); });
+  return cats;
+}
+function catCount(c){ return S.menu.filter(function(d){ return d.cat===c; }).length; }
+function save(){
+  try{ localStorage.setItem(lsKey(), JSON.stringify(S)); return true; }
+  catch(e){ return false; }
+}
+var S = load();
+
+/* ================= 通用 ================= */
+var view = 'g';        // g=顾客端 b=商家端
+var subView = 'kds';   // kds / menu / stat
+var curTable = 'A01';
+var curCat = '凉菜';
+var cart = [];         // {dishId, spec, mods:[], note, qty}
+var cartOpen = false;
+
+function esc(t){
+  return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function dishById(id){
+  for(var i=0;i<S.menu.length;i++) if(S.menu[i].id===id) return S.menu[i];
+  return null;
+}
+function cartTotal(){
+  var t=0;
+  cart.forEach(function(c){
+    var d=dishById(c.dishId); if(!d) return;
+    var p = d.specPrice && c.spec && d.specPrice[c.spec]!=null ? d.specPrice[c.spec] : d.price;
+    t += p*c.qty;
+  });
+  return t;
+}
+function cartCount(){
+  var n=0; cart.forEach(function(c){ n+=c.qty; }); return n;
+}
+function nowHM(){
+  var d=new Date(); return ('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2);
+}
+function minsAgo(ts){
+  return Math.max(0, Math.round((Date.now()-ts)/60000));
+}
+
+/* ================= 视图切换 ================= */
+function switchView(v){
+  view=v;
+  document.getElementById('tabG').className = 'tab'+(v==='g'?' active':'');
+  document.getElementById('tabB').className = 'tab'+(v==='b'?' active':'');
+  document.getElementById('guestView').style.display = v==='g'?'':'none';
+  document.getElementById('bossView').style.display = v==='b'?'':'none';
+  /* 切换视图时清掉顾客端的浮层，避免带到商家端 */
+  var ob=document.getElementById('cartbar'); if(ob) ob.remove();
+  var op=document.getElementById('cartpanel'); if(op) op.remove();
+  cartOpen=false;
+  render();
+}
+
+/* ================= 顾客端渲染 ================= */
+function renderGuest(){
+  var el = document.getElementById('guestView');
+  var cats = allCats();
+  if(cats.length && cats.indexOf(curCat)<0) curCat = cats[0];
+
+  var h = '';
+  if(isGuest){
+    var label = GUEST_GROUP || '顾客体验';
+    var store = (ACC_NAME && GUEST_GROUP && ACC_NAME !== GUEST_GROUP) ? ACC_NAME : '';
+    h += '<div class="guestbar">'
+      + '<div class="gline1"><span class="gno">' + esc(label) + '　扫码点餐</span>'
+      + (store ? '<span class="gstore">' + esc(store) + '</span>' : '')
+      + '</div>'
+      + '<div class="gtip">这是<b>' + esc(label) + '</b>设计的菜单。选好菜后提交订单，'
+      + '页面会给出一段订单码，<b>复制后发回本组</b>即可（本组在「后厨 KDS → 收入扫码订单」粘贴）。</div>'
+      + '</div>';
+  }else if(!OPEN_STATE){
+    h += '<div class="bannerclosed">🔴 <b>当前已闭店</b>：同学扫此二维码会看到「已暂停点单」。'
+      + '你作为教师仍可正常预览与操作；要恢复点单，点页首的「🔴 已闭店」按钮即可。</div>';
+  }
+  /* 桌号选择 */
+  h += '<div class="tablebar"><b>桌号：</b>';
+  TABLES.forEach(function(t){
+    h += '<span class="tchip'+(t===curTable?' sel':'')+'" onclick="pickTable(\''+t+'\')">'+t+'</span>';
+  });
+  h += '</div>';
+
+  /* 菜单区 */
+  h += '<div class="foodgrid"><div class="cats">';
+  cats.forEach(function(c){
+    h += '<div class="cat'+(c===curCat?' sel':'')+'" onclick="pickCat(\''+c+'\')">'+c+'</div>';
+  });
+  h += '</div><div class="dishes">';
+  var dl = S.menu.filter(function(d){return d.cat===curCat;});
+  if(!dl.length) h += '<div class="empty">该分类下暂无菜品 —— 请到「商家管理端 · 菜单管理」点「＋ 新增菜品」</div>';
+  dl.forEach(function(d){
+    var off = d.soldOut;
+    h += '<div class="dish'+(off?' off':'')+'">'
+      + '<div class="pic">'+(d.img?'<img src="'+d.img+'" alt="">':d.emoji)+'</div><div>'
+      + '<h4>'+esc(d.name)+'</h4>'+(d.desc? '<div class="desc">'+esc(d.desc)+'</div>':'')
+      + '<div class="price">¥'+d.price+d.unit+(d.specs?' <small>｜多规格</small>':'')+'</div>'
+      + '</div>';
+    if(off){ h += '<span class="soldout">已沽清</span>'; }
+    else { h += '<button class="addbtn" onclick="openItem(\''+d.id+'\')">＋</button>'; }
+    h += '</div>';
+  });
+  h += '</div></div>';
+
+  /* 我的订单 */
+  var mine = S.orders.filter(function(o){return o.table===curTable;}).slice(-6).reverse();
+  if(mine.length){
+    h += '<div class="myorders"><h3>本桌订单（'+esc(curTable)+'）</h3>';
+    mine.forEach(function(o){
+      var stMap = {new:['待制作','b-new'],cooking:['制作中','b-cook'],done:['已出餐','b-done'],paid:['已结账','b-paid']};
+      var st = stMap[o.status]||['未知','b-paid'];
+      h += '<div class="oitem"><div class="head"><b>'+esc(o.no)+'</b>'
+        + '<span class="badge '+st[1]+'">'+st[0]+'</span>'
+        + '<span style="color:#9AA3AD;font-size:12px;">'+esc(o.timeHM)+'</span></div>'
+        + '<div class="body">'+o.items.map(function(it){ return esc(it.qty)+'× '+esc(it.name)+(it.mods&&it.mods.length?'（'+esc(it.mods.join('、'))+'）':''); }).join('；')+'</div></div>';
+    });
+    h += '</div>';
+  }
+
+  el.innerHTML = h;
+
+  /* 购物车条 */
+  var oldBar = document.getElementById('cartbar'); if(oldBar) oldBar.remove();
+  var oldPanel = document.getElementById('cartpanel'); if(oldPanel) oldPanel.remove();
+  if(view==='g'){
+    var bar = document.createElement('div');
+    bar.className='cartbar'; bar.id='cartbar'; bar.onclick=function(ev){ if(ev.target.closest('.submit')) return; toggleCart(); };
+    bar.innerHTML = '<span class="cnt">'+cartCount()+'</span><span>购物车</span>'
+      + '<span class="total">¥'+cartTotal().toFixed(0)+'</span><span class="go" onclick="event.stopPropagation();toggleCart();">'+(cartOpen?'收起':'查看')+'</span>';
+    document.body.appendChild(bar);
+
+    if(cartOpen){
+      var p = document.createElement('div');
+      p.className='cartpanel show'; p.id='cartpanel';
+      var ph='';
+      if(!cart.length){ ph += '<div class="empty">购物车是空的，先加点菜吧</div>'; }
+      cart.forEach(function(c,idx){
+        var d=dishById(c.dishId); if(!d) return;
+        var price = d.specPrice && c.spec && d.specPrice[c.spec]!=null ? d.specPrice[c.spec] : d.price;
+        ph += '<div class="citem"><div class="nm">'+esc(d.name)
+          +(c.spec?'（'+esc(c.spec)+'）':'')
+          +((c.mods&&c.mods.length)||c.note?'<small>'+esc((c.mods||[]).join('、'))+(c.note?' ｜备注：'+esc(c.note):'')+'</small>':'')
+          +'</div><div style="color:var(--red);font-weight:700;">¥'+(price*c.qty)+'</div>'
+          +'<div class="qty"><button onclick="chQty('+idx+',-1)">−</button><span>'+c.qty+'</span><button onclick="chQty('+idx+',1)">＋</button></div></div>';
+      });
+      if(cart.length){
+        ph += '<input class="notearea" id="orderNote" placeholder="整单备注（如：一位不吃香菜）" value="'+esc(cartNote)+'">'
+          + '<button class="submit" onclick="submitOrder()">提交订单 · ¥'+cartTotal().toFixed(0)+'</button>';
+      }
+      p.innerHTML = ph;
+      document.body.appendChild(p);
+    }
+  }
+}
+function pickTable(t){ curTable=t; render(); }
+function pickCat(c){ curCat=c; render(); }
+var cartNote='';
+function toggleCart(){ cartOpen=!cartOpen; render(); }
+function chQty(i,delta){
+  var noteEl = document.getElementById('orderNote');
+  if(noteEl) cartNote = noteEl.value;
+  cart[i].qty += delta;
+  if(cart[i].qty<=0) cart.splice(i,1);
+  render();
+}
+
+/* 加菜弹层 */
+var dlgDish = null, dlgSpec = null, dlgMods = [], dlgQty = 1, dlgNote='';
+function openItem(id){
+  var d = dishById(id); if(!d||d.soldOut) return;
+  dlgDish=d; dlgSpec = d.specs? d.specs[0].n : null; dlgMods=[]; dlgQty=1; dlgNote='';
+  renderDlg();
+}
+function renderDlg(){
+  var m=document.getElementById('dlgMask'); if(!m){
+    m=document.createElement('div'); m.className='mask'; m.id='dlgMask';
+    m.innerHTML='<div class="dlg" id="dlgBody"></div>';
+    m.onclick=function(ev){ if(ev.target===m) closeDlg(); };
+    document.body.appendChild(m);
+  }
+  m.className='mask show';
+  var d=dlgDish;
+  var price = d.specPrice && dlgSpec && d.specPrice[dlgSpec]!=null ? d.specPrice[dlgSpec] : d.price;
+  var h=(d.img?'<img class="dishBig" src="'+d.img+'" alt="">':'')
+    +'<h3>'+d.emoji+' '+esc(d.name)+'</h3>'+(d.desc? '<div class="sub">'+esc(d.desc)+'</div>':'<div class="sub"></div>');
+  if(d.specs){
+    h+='<div class="optgrp"><label>规格</label><div class="opts">';
+    d.specs.forEach(function(s){
+      var p = d.specPrice && d.specPrice[s.n]!=null ? d.specPrice[s.n] : d.price+s.add;
+      h+='<span class="opt'+(dlgSpec===s.n?' sel pricey':'')+'" onclick="setSpec(\''+esc(s.n)+'\')">'+esc(s.n)+' ¥'+p+'</span>';
+    });
+    h+='</div></div>';
+  }
+  h+='<div class="optgrp"><label>口味做法 / 个性化（可多选）</label><div class="opts">';
+  MODS.forEach(function(mo){
+    h+='<span class="opt'+(dlgMods.indexOf(mo)>=0?' sel':'')+'" onclick="toggMod(\''+mo+'\')">'+mo+'</span>';
+  });
+  h+='</div></div>';
+  h+='<div class="optgrp"><label>数量</label><div class="qty" style="gap:12px;">'
+    +'<button style="width:26px;height:26px;border-radius:13px;border:1px solid var(--line);background:#fff;cursor:pointer;" onclick="dlgQty=Math.max(1,dlgQty-1);renderDlg()">−</button>'
+    +'<b style="font-size:16px;">'+dlgQty+'</b>'
+    +'<button style="width:26px;height:26px;border-radius:13px;border:1px solid var(--line);background:#fff;cursor:pointer;" onclick="dlgQty++;renderDlg()">＋</button>'
+    +'</div></div>';
+  h+='<div class="optgrp"><label>本菜备注</label><input class="notearea" id="dlgNote" style="margin-top:0;" placeholder="如：上菜时说明做法" value="'+esc(dlgNote)+'"></div>';
+  h+='<div class="dlgbtns"><button class="canc" onclick="closeDlg()">取消</button>'
+    +'<button class="okb" onclick="addToCart()">加入购物车 ¥'+(price*dlgQty)+'</button></div>';
+  document.getElementById('dlgBody').innerHTML=h;
+}
+function setSpec(s){
+  var n=document.getElementById('dlgNote'); if(n) dlgNote=n.value;
+  dlgSpec=s; renderDlg();
+}
+function toggMod(mo){
+  var n=document.getElementById('dlgNote'); if(n) dlgNote=n.value;
+  var i=dlgMods.indexOf(mo);
+  if(i>=0) dlgMods.splice(i,1); else dlgMods.push(mo);
+  renderDlg();
+}
+function closeDlg(){ document.getElementById('dlgMask').className='mask'; }
+function addToCart(){
+  var n=document.getElementById('dlgNote'); if(n) dlgNote=n.value;
+  var key = dlgDish.id+'|'+dlgSpec+'|'+dlgMods.join(',')+'|'+dlgNote;
+  var found=false;
+  cart.forEach(function(c){
+    if(c.dishId+'|'+c.spec+'|'+(c.mods||[]).join(',')+'|'+(c.note||'')===key){ c.qty+=dlgQty; found=true; }
+  });
+  if(!found){
+    cart.push({dishId:dlgDish.id, spec:dlgSpec, mods:dlgMods.slice(), note:dlgNote, qty:dlgQty});
+  }
+  closeDlg(); render();
+}
+function submitOrder(){
+  if(!cart.length) return;
+  var noteEl=document.getElementById('orderNote');
+  if(noteEl) cartNote=noteEl.value;
+  S.seq++;
+  var no = curTable+'-'+String(S.seq).slice(-3);
+  var items = cart.map(function(c){
+    var d=dishById(c.dishId);
+    var price = d.specPrice && c.spec && d.specPrice[c.spec]!=null ? d.specPrice[c.spec] : d.price;
+    return {name:(d.name+(c.spec?'（'+c.spec+'）':'')), price:price, qty:c.qty, mods:c.mods.slice(), dishId:c.dishId};
+  });
+  S.orders.push({no:no, table:curTable, items:items, orderNote:cartNote, status:'new', ts:Date.now(), timeHM:nowHM()});
+  cart=[]; cartNote=''; cartOpen=false;
+  save(); render();
+  showOrderCode(no);
+}
+
+/* ================= 商家端渲染 ================= */
+function renderBoss(){
+  var el=document.getElementById('bossView');
+  var cats=allCats();
+  var h='<div class="subtabs">'
+    +'<span class="subtab'+(subView==='kds'?' sel':'')+'" onclick="subView=\'kds\';render()">后厨 KDS</span>'
+    +'<span class="subtab'+(subView==='menu'?' sel':'')+'" onclick="subView=\'menu\';render()">菜单管理</span>'
+    +'<span class="subtab'+(subView==='stat'?' sel':'')+'" onclick="subView=\'stat\';render()">营业统计</span>'
+    +'<span class="subtab'+(subView==='code'?' sel':'')+'" onclick="subView=\'code\';render()">点单二维码</span>'
+    +'</div>';
+
+  if(subView==='kds'){
+    h+='<div class="mgmtTools"><button class="addish" onclick="openImportOrder()">📥 收入扫码订单</button>'
+      +'<span style="color:#9AA3AD;font-size:12px;">同学在手机上扫桌码下单后，会拿到一段订单码，粘到这里即可</span></div>';
+    var cols=[['new','待制作'],['cooking','制作中'],['done','已出餐（待结账）']];
+    h+='<div class="kds">';
+    cols.forEach(function(cf){
+      var list=S.orders.filter(function(o){return o.status===cf[0];});
+      h+='<div class="kcol"><h4>'+cf[1]+'<span>'+list.length+' 单</span></h4>';
+      if(!list.length) h+='<div class="empty">暂无订单</div>';
+      list.forEach(function(o){
+        h+='<div class="kcard"><div class="kh"><b>'+esc(o.no)+'</b><span class="tm">'+minsAgo(o.ts)+' 分钟前</span></div>';
+        o.items.forEach(function(it){
+          h+='<div class="li">'+it.qty+' × '+esc(it.name)+(it.mods&&it.mods.length?' <small>'+esc(it.mods.join('、'))+'</small>':'')+'</div>';
+        });
+        if(o.orderNote) h+='<div class="note">备注：'+esc(o.orderNote)+'</div>';
+        if(o.status==='new') h+='<button class="kbtn kb1" onclick="setSt(\''+o.no+'\',\'cooking\')">开始制作</button>';
+        if(o.status==='cooking') h+='<button class="kbtn kb2" onclick="setSt(\''+o.no+'\',\'done\')">出餐完成</button>';
+        if(o.status==='done') h+='<button class="kbtn kb3" onclick="setSt(\''+o.no+'\',\'paid\')">顾客结账 · 收款</button>';
+        h+='</div>';
+      });
+      h+='</div>';
+    });
+    h+='</div>';
+  }
+
+  if(subView==='menu'){
+    h+='<div class="mgmtTools">'
+      +'<button class="addish" onclick="openDishDlg(null)">＋ 新增菜品</button>'
+      +'<button class="mini" onclick="openCatDlg()">分类管理</button>'
+      +'<button class="mini del" onclick="clearMenu()">清空菜单（重新设计）</button>'
+      +'<span style="color:#9AA3AD;font-size:12px;">共 '+S.menu.length+' 道菜 · '+cats.length+' 个分类</span>'
+      +'</div>';
+    h+='<table class="mgmt"><thead><tr><th>图</th><th>菜品 / 描述</th><th>分类</th><th>价格（元）</th><th>规格</th><th>状态</th><th>操作</th></tr></thead><tbody>';
+    if(!S.menu.length) h+='<tr><td colspan="7" class="empty">菜单是空的——点「＋ 新增菜品」开始设计菜单</td></tr>';
+    S.menu.forEach(function(d){
+      h+='<tr>'
+        +'<td data-th="图"><div class="tpic">'+(d.img?'<img src="'+d.img+'" alt="">':d.emoji)+'</div></td>'
+        +'<td data-th="菜品"><b>'+esc(d.name)+'</b><div style="color:var(--gray);font-size:11.5px;line-height:1.5;">'+esc(d.desc||'（暂无描述）')+'</div></td>'
+        +'<td data-th="分类">'+esc(d.cat)+'</td>'
+        +'<td data-th="价格"><input class="priceinput" type="number" min="0" value="'+d.price+'" onchange="setPrice(\''+d.id+'\',this.value)"></td>'
+        +'<td data-th="规格">'+(d.specs? d.specs.map(function(s){return esc(s.n);}).join(' / ') : '—')+'</td>'
+        +'<td data-th="状态">'+(d.soldOut?'<span style="color:var(--red);">已沽清</span>':'在售')+'</td>'
+        +'<td data-th="操作"><button class="mini" onclick="openDishDlg(\''+d.id+'\')">编辑</button> '
+        +'<button class="mini" onclick="toggSO(\''+d.id+'\')">'+(d.soldOut?'恢复':'沽清')+'</button> '
+        +'<button class="mini del" onclick="delDish(\''+d.id+'\')">删除</button></td>'
+        +'</tr>';
+    });
+    h+='</tbody></table><div style="color:#9AA3AD;font-size:12px;margin-top:8px;">改价、沽清、增删与照片即时生效，顾客端同步联动。</div>';
+  }
+
+  if(subView==='code'){
+    var info = shareInfo();
+    var glabel = displayName(ACC, '');
+    if(!OPEN_STATE){
+      h+='<div class="bannerclosed">🔴 <b>当前已闭店</b>：下面这张码扫进去会显示「已暂停点单」，同学无法下单。<br>'
+        +'恢复点单请点页首的「🔴 已闭店」按钮，二维码会自动恢复可用（页面不用刷新）。</div>';
+    }
+    h+='<div class="qrnote">这是 <b>' + esc(glabel) + '</b>' + (ACC_NAME ? '（' + esc(ACC_NAME) + '）' : '') + '的顾客点单二维码。<br>'
+      +'让同学用<b>手机相机或微信「扫一扫」</b>对准这张码，就能直接在自己手机上打开'
+      + esc(glabel) + '的点菜端并下单，<b>不需要复制链接</b>。<br>'
+      +'<span style="color:#8A6116;">微信若提示「非微信官方网页」，点右上角「···」→「在浏览器打开」即可，链接不用改。</span></div>';
+    if(info.lv > 0){
+      var avgChr = Math.max(8, Math.ceil(info.raw / Math.max(1, S.menu.length)));
+      var suggest = Math.max(4, Math.floor(760 / avgChr));
+      h+='<div class="qrtrim">菜单较大，为保证手机一扫就开，这张码已自动<b>' + esc(info.name) + '</b>。'
+        +'若想连菜品描述一起扫过去，可把菜单精简到约 ' + suggest + ' 道菜，或把每道菜的描述写得再短一些。</div>';
+    }
+    h+='<div class="qrbig"><canvas data-qr="' + esc(info.url) + '" data-qrpx="228"></canvas></div>';
+    h+='<div class="qrmeta">扫我点菜 · ' + esc(glabel) + (ACC_NAME ? ' · ' + esc(ACC_NAME) : '') + '</div>';
+    h+='<div class="qrstats">网址 ' + info.url.length + ' 字符 · 二维码 ' + qrModules(info.url) + '×' + qrModules(info.url) + ' 点'
+      +'（点越少越好扫） · ' + S.menu.length + ' 道菜 / ' + cats.length + ' 个分类</div>';
+    h+='<textarea class="ordercode" id="qrUrlBox" style="height:56px;">' + esc(info.url) + '</textarea>';
+    h+='<div class="resetrow">'
+      +'<button class="mini" onclick="copyText(document.getElementById(\'qrUrlBox\').value,this)">复制链接（备用）</button>'
+      +'<button class="reset" onclick="window.print()">打印此码</button>'
+      +'<span style="color:#9AA3AD;font-size:12px;">首选让同学"长按二维码→识别"或截图后正面朝准相机扫描。</span>'
+      +'</div>';
+  }
+
+  if(subView==='stat'){
+    var paid=S.orders.filter(function(o){return o.status==='paid';});
+    var unpaid=S.orders.filter(function(o){return o.status!=='paid';});
+    var rev=0; paid.forEach(function(o){ o.items.forEach(function(it){ rev+=it.price*it.qty; }); });
+    var unrev=0; unpaid.forEach(function(o){ o.items.forEach(function(it){ unrev+=it.price*it.qty; }); });
+    var cnt=paid.length||1;
+    h+='<div class="statgrid">'
+      +'<div class="stat redv"><div class="v">¥'+rev.toFixed(0)+'</div>已结账营业额</div>'
+      +'<div class="stat"><div class="v">¥'+unrev.toFixed(0)+'</div>未结账（在店）</div>'
+      +'<div class="stat"><div class="v">'+S.orders.length+'</div>总订单数</div>'
+      +'<div class="stat"><div class="v">¥'+(rev/cnt).toFixed(0)+'</div>已结账客单价</div>'
+      +'</div>';
+    /* 畅销榜 */
+    var mp={};
+    S.orders.forEach(function(o){ o.items.forEach(function(it){ var k=it.name.split('（')[0]; mp[k]=(mp[k]||0)+it.qty; }); });
+    var tops=Object.keys(mp).map(function(k){return [k,mp[k]];}).sort(function(a,b){return b[1]-a[1];}).slice(0,5);
+    var maxq = tops.length? tops[0][1] : 1;
+    h+='<div class="tops"><h4>畅销菜 TOP5（点餐数据沉淀 → 菜单工程依据）</h4>';
+    if(!tops.length) h+='<div class="empty">还没有订单数据</div>';
+    tops.forEach(function(t,i){
+      h+='<div class="trow"><span class="rank">'+(i+1)+'</span>'+esc(t[0])
+        +'<span class="bar" style="width:'+Math.round(t[1]/maxq*220)+'px;"></span><span class="qty2">'+t[1]+' 份</span></div>';
+    });
+    h+='</div>';
+    /* 流水 */
+    h+='<div class="flow"><table><thead><tr><th>订单号</th><th>桌号</th><th>下单时间</th><th>金额</th><th>状态</th></tr></thead><tbody>';
+    if(!S.orders.length) h+='<tr><td colspan="5" class="empty">暂无订单</td></tr>';
+    S.orders.slice().reverse().slice(0,15).forEach(function(o){
+      var amt=0; o.items.forEach(function(it){amt+=it.price*it.qty;});
+      var stMap={new:'待制作',cooking:'制作中',done:'已出餐',paid:'已结账'};
+      h+='<tr><td data-th="订单号">'+esc(o.no)+'</td><td data-th="桌号">'+esc(o.table)+'</td><td data-th="时间">'+esc(o.timeHM)+'</td><td data-th="金额">¥'+amt.toFixed(0)+'</td><td data-th="状态">'+stMap[o.status]+'</td></tr>';
+    });
+    h+='</tbody></table></div>';
+    h+='<input type="file" id="impFile" accept=".json,application/json" style="display:none" onchange="importData(event)">';
+    h+='<div class="resetrow">'
+      +'<button class="reset" onclick="exportData()">导出数据</button> '
+      +'<button class="reset" onclick="pickImportFile()">导入数据</button> '
+      +'<button class="reset" onclick="resetAll()">清空全部数据</button></div>';
+    h+='<div class="datanote">当前账号：<b>'+esc(groupName())+'</b></div>';
+  }
+
+  el.innerHTML=h;
+}
+function setSt(no,st){
+  S.orders.forEach(function(o){ if(o.no===no) o.status=st; });
+  save(); render();
+}
+function setPrice(id,v){
+  var p=parseFloat(v); if(isNaN(p)||p<0) p=0;
+  S.menu.forEach(function(d){ if(d.id===id) d.price=Math.round(p*10)/10; });
+  save(); render();
+}
+function toggSO(id){
+  S.menu.forEach(function(d){ if(d.id===id) d.soldOut=!d.soldOut; });
+  save(); render();
+}
+function resetAll(){
+  uiConfirm('清空全部数据', '确定清空全部订单并恢复默认菜单？\n（用于下一次课堂开始前重置）', function(){
+    S=defaultState(); save(); render();
+  }, '清空', true);
+}
+
+/* ================= 菜品编辑：新增 / 改价 / 图片 / 描述 / 规格 ================= */
+var EMOJIS=['🍽️','🍲','🍜','🍚','🥘','🍖','🐟','🦐','🦀','🥬','🍄','🥟','🍢','🥗','🍰','🍧','🍵','🥤','🍺','🏮'];
+var edlg=null;
+
+function openDishDlg(id){
+  var d = id? dishById(id) : null;
+  if(d){
+    edlg={ id:d.id, name:d.name, cat:d.cat, price:d.price, unit:d.unit||'', desc:d.desc||'',
+      emoji:d.emoji||'🍽️', img:d.img||'',
+      specs: d.specs? d.specs.map(function(s){
+        return {n:s.n, p:(d.specPrice && d.specPrice[s.n]!=null)? d.specPrice[s.n] : d.price+s.add};
+      }) : [] };
+  } else {
+    var cs=allCats();
+    edlg={ id:null, name:'', cat:(curCat||cs[0]||'热菜'), price:'', unit:'', desc:'', emoji:'🍽️', img:'', specs:[] };
+  }
+  renderEDlg();
+}
+function syncEDlg(){
+  if(!edlg) return;
+  var g=function(i){ var e=document.getElementById(i); return e? e.value : ''; };
+  edlg.name=g('edName'); edlg.cat=g('edCat'); edlg.price=g('edPrice');
+  edlg.unit=g('edUnit'); edlg.desc=g('edDesc');
+}
+function renderEDlg(){
+  var m=document.getElementById('edlgMask');
+  if(!m){
+    m=document.createElement('div'); m.className='mask'; m.id='edlgMask';
+    m.innerHTML='<div class="dlg wide" id="edlgBody"></div>';
+    m.onclick=function(ev){ if(ev.target===m) closeEDlg(); };
+    document.body.appendChild(m);
+  }
+  m.className='mask show';
+  var cats=allCats();
+  var h='<h3>'+(edlg.id?'编辑菜品':'新增菜品')+'</h3>'
+    +'<div class="sub">保存后顾客端菜单立即更新（同一台电脑双窗口可实时看到）</div>';
+  /* 照片 */
+  h+='<div class="fld"><label>菜品照片</label><div style="display:flex;gap:12px;align-items:flex-start;">'
+    +'<div class="thumb">'+(edlg.img?'<img src="'+edlg.img+'" alt="">':edlg.emoji)+'</div>'
+    +'<div style="flex:1;">'
+    +'<input type="file" accept="image/*" onchange="readImgFile(this)" style="font-size:12.5px;">'
+    +(edlg.img
+      ? '<div style="margin-top:7px;"><button class="mini del" onclick="clearImg()">移除照片</button>'
+        +'<span style="color:#9AA3AD;font-size:11.5px;margin-left:8px;">已上传，自动压缩后存本机</span></div>'
+      : '<div style="color:#9AA3AD;font-size:11.5px;margin-top:6px;line-height:1.6;">未上传时用下方图标占位。<br>建议用手机拍的菜品照或网图，会自动压缩到 260px。</div>')
+    +'</div></div></div>';
+  /* 图标 */
+  h+='<div class="fld"><label>备选图标（无照片时显示）</label><div class="emojis">';
+  EMOJIS.forEach(function(e){ h+='<span class="'+(edlg.emoji===e?'sel':'')+'" onclick="pickEmoji(\''+e+'\')">'+e+'</span>'; });
+  h+='</div></div>';
+  /* 名称 / 分类 / 价格 */
+  h+='<div class="fld"><label>菜品名称 *</label><input id="edName" value="'+esc(edlg.name)+'" placeholder="如：松鼠桂鱼"></div>';
+  h+='<div class="fld"><div class="row2">'
+    +'<div><label>分类（可直接输入新分类）</label><input id="edCat" list="edCatList" value="'+esc(edlg.cat)+'" placeholder="如：热菜"><datalist id="edCatList">'
+    +cats.map(function(c){ return '<option value="'+esc(c)+'">'; }).join('')
+    +'</datalist></div>'
+    +'<div><label>价格（元）*</label><input id="edPrice" type="number" min="0" step="0.5" value="'+esc(edlg.price)+'" placeholder="如：88"></div>'
+    +'</div></div>';
+  h+='<div class="fld"><label>计价单位（可选）</label><input id="edUnit" value="'+esc(edlg.unit)+'" placeholder="如 /位、/份；留空按份计价"></div>';
+  h+='<div class="fld"><label>菜品描述（可选）</label><textarea id="edDesc" placeholder="口味、食材、卖点，如：太湖银鱼，色如黄金，鲜嫩无刺">'+esc(edlg.desc)+'</textarea></div>';
+  /* 规格 */
+  h+='<div class="fld"><label>规格与规格价（可选，如「半条 / 整条」「例份 / 大份」）</label>';
+  if(!edlg.specs.length) h+='<div style="color:#9AA3AD;font-size:12px;margin-bottom:6px;">未设置规格时，顾客端按上面的价格下单</div>';
+  edlg.specs.forEach(function(s,i){
+    h+='<div class="specrow"><input value="'+esc(s.n)+'" placeholder="规格名，如：大份" oninput="edlg.specs['+i+'].n=this.value">'
+      +'<input class="sp" type="number" min="0" step="0.5" value="'+esc(s.p)+'" placeholder="价格" oninput="edlg.specs['+i+'].p=this.value">'
+      +'<button class="mini del" onclick="specDel('+i+')">删除</button></div>';
+  });
+  h+='<button class="mini" onclick="specAdd()">＋ 添加规格</button></div>';
+  h+='<div class="dlgbtns"><button class="canc" onclick="closeEDlg()">取消</button>'
+    +'<button class="okb" onclick="saveDish()">'+(edlg.id?'保存修改':'确认新增')+'</button></div>';
+  document.getElementById('edlgBody').innerHTML=h;
+}
+function pickEmoji(e){ syncEDlg(); edlg.emoji=e; renderEDlg(); }
+function clearImg(){ syncEDlg(); edlg.img=''; renderEDlg(); }
+function specAdd(){
+  syncEDlg();
+  if(edlg.specs.length>=4){ uiAlert('提示', '最多设置 4 个规格'); return; }
+  edlg.specs.push({n:'', p:''}); renderEDlg();
+}
+function specDel(i){ syncEDlg(); edlg.specs.splice(i,1); renderEDlg(); }
+function readImgFile(input){
+  var f=input.files&&input.files[0]; if(!f) return;
+  var r=new FileReader();
+  r.onload=function(ev){
+    var im=new Image();
+    im.onload=function(){
+      var max=260, w=im.width, h=im.height, sc=Math.min(1, max/Math.max(w,h));
+      var cv=document.createElement('canvas');
+      cv.width=Math.max(1,Math.round(w*sc)); cv.height=Math.max(1,Math.round(h*sc));
+      cv.getContext('2d').drawImage(im,0,0,cv.width,cv.height);
+      try{ edlg.img=cv.toDataURL('image/jpeg',0.72); }
+      catch(e2){ edlg.img=''; uiAlert('提示', '图片处理失败，请换一张试试'); }
+      renderEDlg();
+    };
+    im.onerror=function(){ uiAlert('提示', '这张图片无法识别，请换一张（建议 jpg / png）'); };
+    im.src=ev.target.result;
+  };
+  r.readAsDataURL(f);
+}
+function closeEDlg(){ var m=document.getElementById('edlgMask'); if(m) m.className='mask'; edlg=null; }
+function saveDish(){
+  syncEDlg();
+  var name=String(edlg.name||'').trim();
+  if(!name){ uiAlert('提示', '请填写菜品名称'); return; }
+  var price=parseFloat(edlg.price); if(isNaN(price)||price<0) price=0;
+  var sp=edlg.specs.filter(function(s){ return String(s.n||'').trim(); })
+                  .map(function(s){ return {n:String(s.n).trim(), p:(parseFloat(s.p)||0)}; });
+  var specs=null, specPrice=null;
+  if(sp.length){
+    specs=sp.map(function(s){ return {n:s.n, add:0}; });
+    specPrice={}; sp.forEach(function(s){ specPrice[s.n]=s.p; });
+  }
+  var cat=String(edlg.cat||'').trim()||'未分类';
+  var obj={ id: edlg.id || ('d'+Date.now().toString().slice(-8)),
+    cat:cat, name:name, emoji:edlg.emoji||'🍽️', img:edlg.img||'',
+    price:Math.round(price*10)/10, unit:String(edlg.unit||'').trim(),
+    desc:String(edlg.desc||'').trim(), specs:specs, specPrice:specPrice };
+  var backupMenu=JSON.stringify(S.menu), backupCats=JSON.stringify(S.cats||[]);
+  if(edlg.id){
+    var done=false;
+    S.menu.forEach(function(d,i){ if(d.id===edlg.id){ S.menu[i]=obj; done=true; } });
+    if(!done) S.menu.push(obj);
+  } else {
+    S.menu.push(obj);
+  }
+  if(!S.cats) S.cats=[];
+  if(S.cats.indexOf(cat)<0) S.cats.push(cat);
+  if(!save()){
+    S.menu=JSON.parse(backupMenu); S.cats=JSON.parse(backupCats);
+    uiAlert('保存失败', '本机浏览器存储空间不足，未能保存。\n请删除部分菜品照片，或减少菜品数量后再试。');
+    render(); return;
+  }
+  closeEDlg(); render();
+}
+function delDish(id){
+  var d=dishById(id); if(!d) return;
+  uiConfirm('删除菜品', '确定删除「' + d.name + '」？\n（已产生的历史订单不受影响）', function(){
+    S.menu=S.menu.filter(function(x){ return x.id!==id; });
+    save(); render();
+  }, '删除', true);
+}
+function clearMenu(){
+  uiConfirm('清空菜品', '清空全部菜品，从零开始设计菜单？\n（订单数据保留；如需恢复示例菜单，可到「营业统计」点「清空全部数据」）', function(){
+    S.menu=[]; save(); render();
+  }, '清空', true);
+}
+
+/* ================= 分类管理 ================= */
+function openCatDlg(){
+  var m=document.getElementById('catMask');
+  if(!m){
+    m=document.createElement('div'); m.className='mask'; m.id='catMask';
+    m.innerHTML='<div class="dlg" id="catBody"></div>';
+    m.onclick=function(ev){ if(ev.target===m) closeCatDlg(); };
+    document.body.appendChild(m);
+  }
+  m.className='mask show';
+  var cats=allCats();
+  var h='<h3>分类管理</h3><div class="sub">改名或删除分类会同步影响该分类下的全部菜品</div>';
+  if(!cats.length) h+='<div class="empty">还没有分类，先在下方添加</div>';
+  cats.forEach(function(c,i){
+    h+='<div class="catrow"><input id="ct'+i+'" value="'+esc(c)+'" placeholder="分类名">'
+      +'<span style="color:var(--gray);font-size:12px;white-space:nowrap;">'+catCount(c)+' 道</span>'
+      +'<button class="mini" onclick="catRen('+i+')">改名</button>'
+      +'<button class="mini del" onclick="catDel('+i+')">删除</button></div>';
+  });
+  h+='<div class="fld" style="margin-top:14px;"><label>新增分类</label><div style="display:flex;gap:8px;">'
+    +'<input id="newCat" placeholder="如：甜品、酒水"><button class="mini" onclick="catAdd()">添加</button></div></div>';
+  h+='<div class="dlgbtns"><button class="okb" onclick="closeCatDlg()">完成</button></div>';
+  document.getElementById('catBody').innerHTML=h;
+}
+function closeCatDlg(){ var m=document.getElementById('catMask'); if(m) m.className='mask'; }
+function catAdd(){
+  var el=document.getElementById('newCat'); var v=el? String(el.value).trim() : '';
+  if(!v){ uiAlert('提示', '请输入分类名称'); return; }
+  if(allCats().indexOf(v)>=0){ uiAlert('提示', '该分类已存在'); return; }
+  if(!S.cats) S.cats=[];
+  S.cats.push(v);
+  if(!save()){ S.cats.pop(); uiAlert('保存失败', '本机浏览器存储空间不足，分类未保存。'); return; }
+  closeCatDlg(); render();
+}
+function catRen(i){
+  var cats=allCats(); var old=cats[i]; if(old==null) return;
+  var el=document.getElementById('ct'+i); var v=el? String(el.value).trim() : '';
+  if(!v||v===old) return;
+  S.menu.forEach(function(d){ if(d.cat===old) d.cat=v; });
+  if(!S.cats) S.cats=[];
+  var k=S.cats.indexOf(old); if(k>=0) S.cats[k]=v; else S.cats.push(v);
+  save(); openCatDlg(); render();
+}
+function catDel(i){
+  var cats=allCats(); var c=cats[i]; if(c==null) return;
+  var n=catCount(c);
+  uiConfirm('删除分类', '删除分类「' + c + '」？\n该分类下 ' + n + ' 道菜将移入「未分类」。', function(){
+    S.menu.forEach(function(d){ if(d.cat===c) d.cat='未分类'; });
+    if(!S.cats) S.cats=[];
+    var k=S.cats.indexOf(c); if(k>=0) S.cats.splice(k,1);
+    if(n>0 && S.cats.indexOf('未分类')<0) S.cats.push('未分类');
+    save(); openCatDlg(); render();
+  }, '删除', true);
+}
+
+/* ================= 账号 / 登录 ================= */
+var regMode = false;
+function setLoginMode(mode){
+  regMode = (mode === 'reg');
+  var e1 = document.getElementById('fldPass2'), e2 = document.getElementById('fldStore'), b = document.getElementById('lgBtn');
+  if(e1) e1.style.display = regMode ? '' : 'none';
+  if(e2) e2.style.display = regMode ? '' : 'none';
+  if(b) b.textContent = regMode ? '设置密码并进入' : '登 录';
+}
+function lgErr(msg){ var e = document.getElementById('lgErr'); if(e) e.textContent = msg || ''; }
+function checkAcct(){
+  var u = normUser(val('lgUser'));
+  lgErr('');
+  if(!u){ setLoginMode('login'); return; }
+  var m = acctMap();
+  if(m[u]){ setLoginMode('login'); }
+  else { setLoginMode('reg'); }
+}
+function doLogin(){
+  var u = normUser(val('lgUser')), p = val('lgPass');
+  lgErr('');
+  if(!u){ lgErr('请输入本组账号，如 3'); return; }
+  if(!p){ lgErr('请输入密码'); return; }
+  var m = acctMap();
+  if(m[u]){
+    if(m[u].p !== hashPwd(u, p)){ lgErr('密码不正确，请重试。'); return; }
+    enterApp(u, m[u].nm);
+    toast('欢迎回来，' + groupName());
+    return;
+  }
+  if(val('lgPass2') !== p){ lgErr('两次输入的密码不一致，请重新输入'); setLoginMode('reg'); return; }
+  var nm = val('lgStore').trim().slice(0, 20);
+  m[u] = { p: hashPwd(u, p), nm: nm, ts: Date.now() };
+  if(!acctWrite(m)){ lgErr('本机浏览器存储不可用，无法保存账号'); return; }
+  var legacy = null;
+  try{ legacy = localStorage.getItem(LS_BASE); }catch(e){}
+  enterApp(u, nm);
+  if(legacy){
+    uiConfirm('发现旧数据', '检测到本机还有一份未归属账号的旧数据，是否复制到「' + groupName() + '」？', function(){
+      try{ localStorage.setItem(lsKey(), legacy); }catch(e){}
+      S = load(); render();
+    }, '复制过来');
+  }
+  toast('账号已创建：' + groupName());
+}
+function enterApp(u, nm){
+  ACC = u; ACC_NAME = nm || displayName(u, '');
+  isGuest = false;
+  try{ localStorage.setItem(LS_LOGIN, u); }catch(e){}
+  S = load();
+  save();
+  showApp();
+  render();
+}
+function showApp(){
+  hideClosed();
+  document.getElementById('loginWrap').style.display = 'none';
+  document.getElementById('appHeader').style.display = '';
+  document.getElementById('appMain').style.display = '';
+  document.getElementById('appFooter').style.display = '';
+  var w = document.getElementById('whoName'); if(w) w.textContent = groupName();
+  var tb = document.getElementById('tabB'); if(tb) tb.style.display = isGuest ? 'none' : '';
+  syncOpenBtn();
+  if(isGuest) switchView('g'); else render();
+}
+function hideApp(){
+  ['appHeader','appMain','appFooter'].forEach(function(id){
+    var e = document.getElementById(id); if(e) e.style.display = 'none';
+  });
+}
+function showLogin(){
+  document.getElementById('loginWrap').style.display = '';
+  setLoginMode('login'); lgErr('');
+}
+function logout(){
+  uiConfirm('退出登录', '退出当前账号？\n本组数据仍保存在本机，用同一账号密码登录即可回来。', function(){
+    try{ localStorage.removeItem(LS_LOGIN); }catch(e){}
+    ACC = ''; ACC_NAME = ''; isGuest = false;
+    S = defaultState();
+    hideApp(); showLogin();
+  }, '退出');
+  ['lgUser','lgPass','lgPass2','lgStore'].forEach(function(id){ var e = document.getElementById(id); if(e) e.value = ''; });
+}
+function guestEntry(){
+  ACC = ''; ACC_NAME = '顾客体验'; isGuest = true;
+  try{ localStorage.removeItem(LS_LOGIN); }catch(e){}
+  S = load();
+  showApp(); switchView('g');
+  toast('已进入顾客点餐端');
+}
+
+/* ================= 通用：提示条与弹层 ================= */
+function tsName(){
+  var d=new Date();
+  function p(n){ return (n<10?'0':'')+n; }
+  return d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'_'+p(d.getHours())+p(d.getMinutes());
+}
+function toast(msg){
+  var t=document.getElementById('toast');
+  if(!t){ t=document.createElement('div'); t.id='toast'; document.body.appendChild(t); }
+  t.textContent=msg; t.className='show';
+  clearTimeout(toast._t);
+  toast._t=setTimeout(function(){ t.className=''; }, 2400);
+}
+function showModal(title, html, wide){
+  var m = document.getElementById('gMask');
+  if(!m){
+    m = document.createElement('div'); m.className = 'mask'; m.id = 'gMask';
+    m.innerHTML = '<div class="dlg" id="gBody"></div>';
+    m.onclick = function(ev){ if(ev.target === m) closeModal(); };
+    document.body.appendChild(m);
+  }
+  m.className = 'mask show';
+  var b = document.getElementById('gBody');
+  b.className = 'dlg' + (wide ? ' wide' : '');
+  b.innerHTML = '<h3>' + esc(title) + '</h3>' + html;
+}
+function closeModal(){ var m = document.getElementById('gMask'); if(m) m.className = 'mask'; }
+
+/* ================= 自绘对话框（不依赖原生 alert / confirm / prompt） ================= */
+/* 微信 / QQ / 部分手机内置浏览器会屏蔽原生弹窗，点了没反应；这里改用页面内弹层。 */
+function uiBox(o){
+  var m = document.getElementById('uiMask');
+  if(!m){
+    m = document.createElement('div'); m.className = 'mask uimask'; m.id = 'uiMask';
+    m.innerHTML = '<div class="dlg" id="uiBody"></div>';
+    m.onclick = function(ev){ if(ev.target === m) uiClose(false); };
+    document.body.appendChild(m);
+  }
+  var h = '<h3>' + esc(o.title || '提示') + '</h3>';
+  h += '<div class="uimsg">' + (o.html ? o.html : esc(o.msg || '')) + '</div>';
+  if(o.input){
+    h += '<div class="uifld"><input id="uiInput" type="' + (o.pwd ? 'password' : 'text') + '" autocomplete="off" spellcheck="false"' + (o.ph ? ' placeholder="' + esc(o.ph) + '"' : '') + '>\n'
+      + '<button class="uieye" type="button" id="uiEye" onclick="uiEye()">显示</button></div>';
+  }
+  h += '<div class="uierr" id="uiErr"></div>';
+  h += '<div class="dlgbtns"><button class="canc" onclick="uiClose(false)">' + esc(o.no || '取消') + '</button>'
+    + '<button class="okb' + (o.danger ? ' danger' : '') + '" onclick="uiOK()">' + esc(o.yes || '确定') + '</button></div>';
+  document.getElementById('uiBody').innerHTML = h;
+  m.className = 'mask uimask show';
+  uiBox.ok = o.onOk || null; uiBox.no = o.onCancel || null; uiBox.ck = o.check || null;
+  var i = document.getElementById('uiInput');
+  if(i){ i.focus(); i.onkeydown = function(ev){ if(ev.key === 'Enter'){ ev.preventDefault(); uiOK(); } }; }
+}
+function uiClose(fire){
+  var m = document.getElementById('uiMask'); if(m) m.className = 'mask uimask';
+  var cb = uiBox.no; uiBox.ok = uiBox.no = uiBox.ck = null;
+  if(fire && typeof cb === 'function') cb();
+}
+function uiEye(){
+  var i = document.getElementById('uiInput'), e = document.getElementById('uiEye');
+  if(!i) return;
+  if(i.type === 'password'){ i.type = 'text'; if(e) e.textContent = '隐藏'; }
+  else { i.type = 'password'; if(e) e.textContent = '显示'; }
+  i.focus();
+}
+function uiOK(){
+  var i = document.getElementById('uiInput'), v = i ? i.value : '';
+  if(uiBox.ck){
+    var err = uiBox.ck(String(v || ''));
+    if(err){
+      var e = document.getElementById('uiErr'); if(e) e.textContent = err;
+      if(i){ i.focus(); i.select(); }
+      return;
+    }
+  }
+  var cb = uiBox.ok; uiBox.ok = uiBox.no = uiBox.ck = null;
+  var m = document.getElementById('uiMask'); if(m) m.className = 'mask uimask';
+  if(typeof cb === 'function') cb(String(v || ''));
+}
+function uiAlert(t, m){ uiBox({ title: t || '提示', msg: m || '', yes: '知道了', no: '关闭' }); }
+function uiConfirm(t, m, onYes, yesText, danger){
+  uiBox({ title: t || '请确认', msg: m || '', yes: yesText || '确定', no: '取消', danger: !!danger, onOk: function(){ onYes(); } });
+}
+
+function copyText(text, btn){
+  function done(){
+    toast('已复制');
+    if(btn){ var o = btn.getAttribute('data-o') || btn.textContent; btn.setAttribute('data-o', o); btn.textContent = '已复制 ✓';
+      setTimeout(function(){ btn.textContent = o; }, 1500); }
+  }
+  function fallback(){
+    try{
+      var ta = document.createElement('textarea');
+      ta.value = String(text || ''); ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      document.execCommand('copy'); document.body.removeChild(ta); done();
+    }catch(e){ uiAlert('复制失败', '请长按上方文本框手动选中复制。'); }
+  }
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(String(text || '')).then(done, fallback); return; }
+  }catch(e){}
+  fallback();
+}
+
+/* ===== 订单码：扫码顾客下单后回传给本组 ===== */
+function orderCode(o){
+  var p = { v:1, u:ACC, t:o.table, no:o.no, thm:o.timeHM,
+    it:(o.items||[]).map(function(x){ return [x.name, x.spec||'', (x.mods||[]).join('、'), x.qty, x.price]; }),
+    nt:o.orderNote||'', ts:o.ts };
+  return 'OD1.' + b64e(JSON.stringify(p));
+}
+function orderCodeURL(o){ return SHARE_BASE + '?o=' + encodeURIComponent(orderCode(o)); }
+/* 从地址里识别出订单码并自动入账（群里点开链接就能收单） */
+function takeOrderLink(){
+  if(!ACC) return;
+  var raw = String(location.search || '') + '&' + String(location.hash || '').replace(/^#/, '');
+  var m = /(?:^|[&?#])o=([^&]+)/.exec(raw);
+  if(!m) return;
+  var val = m[1];
+  try{ val = decodeURIComponent(val); }catch(e){}
+  var r = parseOrderCodes(String(val).replace(/ /g, '+'));
+  if(!r.got.length){ if(r.bad) toast('这段订单码不是本组的'); return; }
+  var n = acceptOrderCodes(r.got);
+  render();
+  if(n) toast('已自动收入 ' + n + ' 单扫码订单');
+  else toast('这单已经收过了');
+}
+function showShareQR(){
+  var info = shareInfo();
+  var glabel = displayName(ACC, '');
+  var h = '<div class="qrnote">让同学用手机相机或微信「扫一扫」对准这张码即可点菜，无需复制链接。</div>'
+    + '<div class="qrbig"><canvas data-qr="' + esc(info.url) + '" data-qrpx="240"></canvas></div>'
+    + '<div class="qrmeta">扫我点菜 · ' + esc(glabel) + (ACC_NAME ? ' · ' + esc(ACC_NAME) : '') + '</div>'
+    + '<div class="dlgbtns"><button class="canc" onclick="closeModal()">关闭</button></div>';
+  showModal('点单二维码', h);
+  paintQRs();
+}
+function showOrderCode(no){
+  var o = null;
+  for(var i = 0; i < S.orders.length; i++) if(S.orders[i].no === no) o = S.orders[i];
+  if(!o) return;
+  var code = orderCode(o);
+  var glabel = GUEST_GROUP || '本组';
+  var h = '<div class="guestbar"><div class="gline1"><span class="gno">' + esc(glabel) + '　订单已收到</span>'
+    + '<span class="gstore">' + esc(o.table) + ' 桌 · ' + esc(o.no) + '</span></div>'
+    + '<div class="gtip">最后一步：把下面的<b>订单码</b>复制后发到小组群，'
+    + '本组在「后厨 KDS → 📥 收入扫码订单」粘贴即可入账。</div></div>'
+    + '<textarea class="ordercode" id="ordCode">' + esc(code) + '</textarea>'
+    + '<div class="dlgbtns"><button class="canc" onclick="closeModal()">关闭</button>'
+    + '<button class="okb" onclick="copyText(document.getElementById(\'ordCode\').value,this)">复制订单码</button></div>';
+  showModal('下单成功 · ' + esc(o.no), h);
+  paintQRs();
+}
+function openImportOrder(){
+  var h = '<div class="qrnote">把同学发来的「订单码」粘贴进来。可以一次粘多条，中间夹着聊天文字也没关系。</div>'
+    + '<textarea class="ordercode" id="impOrd" placeholder="在此粘贴订单码（OD1. 开头）…"></textarea>'
+    + '<div class="dlgbtns"><button class="canc" onclick="closeModal()">取消</button>'
+    + '<button class="okb" onclick="doImportOrder()">收入订单</button></div>';
+  showModal('收入扫码订单', h);
+}
+function parseOrderCodes(txt){
+  var re = /OD1\.([A-Za-z0-9+\/=]+)/g, m, got = [], bad = 0;
+  while((m = re.exec(txt)) !== null){
+    var o = null;
+    try{ o = JSON.parse(b64d(m[1])); }catch(e){ o = null; }
+    if(!o || !o.it){ bad++; continue; }
+    if(o.u !== ACC){ bad++; continue; }
+    got.push(o);
+  }
+  return { got: got, bad: bad };
+}
+function acceptOrderCodes(list){
+  var n = 0;
+  list.forEach(function(o){
+    if(S.orders.some(function(x){ return x.no === o.no; })) return;
+    S.seq += 1;
+    S.orders.push({
+      no:o.no, table:o.t,
+      items:(o.it||[]).map(function(a){
+        return { name:a[0], spec:a[1]||null, mods:a[2]?String(a[2]).split('、'):[], qty:a[3], price:a[4] };
+      }),
+      orderNote:o.nt||'', status:'new', ts:o.ts||Date.now(), timeHM:o.thm||nowHM()
+    });
+    n += 1;
+  });
+  if(n){ save(); }
+  return n;
+}
+function doImportOrder(){
+  var ta = document.getElementById('impOrd'), txt = ta ? String(ta.value || '') : '';
+  var r = parseOrderCodes(txt);
+  var got = r.got, bad = r.bad, n;
+  if(!got.length){
+    uiAlert('没有可用订单', bad ? ('识别到 ' + bad + ' 条，但都不是本组的订单码。') : '没有识别到订单码，请确认粘贴内容以 OD1. 开头。');
+    return;
+  }
+  n = acceptOrderCodes(got);
+  closeModal(); render();
+  toast(n ? ('已收入 ' + n + ' 单') : '这些订单已经收过了');
+}
+
+/* ================= 数据导入导出 ================= */
+function exportData(){
+  var payload={ kind:'emenu_sim', account:ACC||'', accountName:groupName(),
+    exportedAt:new Date().toLocaleString(), state:S };
+  var fn='点餐仿真数据_'+groupName()+'_'+tsName()+'.json';
+  try{
+    var blob=new Blob([JSON.stringify(payload,null,2)], {type:'application/json;charset=utf-8'});
+    var url=URL.createObjectURL(blob);
+    var a=document.createElement('a');
+    a.href=url; a.download=fn;
+    document.body.appendChild(a); a.click();
+    setTimeout(function(){ document.body.removeChild(a); URL.revokeObjectURL(url); }, 600);
+    toast('已导出：'+fn);
+  }catch(e){
+    uiAlert('导出失败', e.message + '\n（可尝试用 Chrome / Edge 打开本文件）');
+  }
+}
+function pickImportFile(){ var e = document.getElementById("impFile"); if(e) e.click(); }
+function importData(ev){
+  var f=ev.target.files && ev.target.files[0];
+  ev.target.value='';
+  if(!f) return;
+  var fr=new FileReader();
+  fr.onload=function(){
+    var obj=null;
+    try{ obj=JSON.parse(fr.result); }
+    catch(e){ uiAlert('导入失败', '文件不是有效的 JSON：' + e.message); return; }
+    var st = (obj && obj.state) ? obj.state : obj;
+    if(!st || !st.menu || !st.orders){ uiAlert('导入失败', '文件内容不是本系统的数据（缺少菜单或订单字段）。'); return; }
+    uiConfirm('导入数据', '导入「' + f.name + '」将覆盖当前账号「' + groupName() + '」的全部菜单与订单数据。\n\n确定继续？', function(){
+      S=st; save(); render();
+      toast('已导入：' + f.name);
+    }, '覆盖导入', true);
+  };
+  fr.onerror=function(){ uiAlert('导入失败', '文件读取失败，请重试'); };
+  fr.readAsText(f, 'utf-8');
+}
+
+/* ================= 扫码互动：桌码 / 订单码 ================= */
+var SHARE_BASE = location.origin + '/customer.html';
+var B64C = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+function utf8Bytes(str){
+  var out = [], i, c;
+  for(i = 0; i < str.length; i++){
+    c = str.charCodeAt(i);
+    if(c < 0x80){ out.push(c); }
+    else if(c < 0x800){ out.push(0xC0 | (c >> 6), 0x80 | (c & 63)); }
+    else if(c < 0xD800 || c >= 0xE000){ out.push(0xE0 | (c >> 12), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63)); }
+    else { i++; c = 0x10000 + (((c & 0x3FF) << 10) | (str.charCodeAt(i) & 0x3FF));
+      out.push(0xF0 | (c >> 18), 0x80 | ((c >> 12) & 63), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63)); }
+  }
+  return out;
+}
+function bytesUtf8(b){
+  var out = '', i = 0, c, cp;
+  while(i < b.length){
+    c = b[i];
+    if(c < 0x80){ out += String.fromCharCode(c); i += 1; }
+    else if(c < 0xE0){ out += String.fromCharCode(((c & 31) << 6) | (b[i+1] & 63)); i += 2; }
+    else if(c < 0xF0){ out += String.fromCharCode(((c & 15) << 12) | ((b[i+1] & 63) << 6) | (b[i+2] & 63)); i += 3; }
+    else { cp = ((c & 7) << 18) | ((b[i+1] & 63) << 12) | ((b[i+2] & 63) << 6) | (b[i+3] & 63);
+      cp -= 0x10000; out += String.fromCharCode(0xD800 + (cp >> 10), 0xDC00 + (cp & 1023)); i += 4; }
+  }
+  return out;
+}
+function b64e(str){
+  var b = utf8Bytes(str), out = '', i, n1, n2, n3;
+  for(i = 0; i < b.length; i += 3){
+    n1 = b[i]; n2 = (i + 1 < b.length) ? b[i+1] : 0; n3 = (i + 2 < b.length) ? b[i+2] : 0;
+    out += B64C[n1 >> 2];
+    out += B64C[((n1 & 3) << 4) | (n2 >> 4)];
+    out += (i + 1 < b.length) ? B64C[((n2 & 15) << 2) | (n3 >> 6)] : '=';
+    out += (i + 2 < b.length) ? B64C[n3 & 63] : '=';
+  }
+  return out;
+}
+function b64d(str){
+  try{
+    var s = String(str).replace(/[^A-Za-z0-9+/=]/g, ''), b = [], buf = 0, bits = 0, i, v;
+    for(i = 0; i < s.length; i++){
+      if(s[i] === '=') break;
+      v = B64C.indexOf(s[i]); if(v < 0) continue;
+      buf = (buf << 6) | v; bits += 6;
+      if(bits >= 8){ bits -= 8; b.push((buf >> bits) & 255); }
+    }
+    return bytesUtf8(b);
+  }catch(e){ return null; }
+}
+
+/* 二维码内容：线上地址 + 桌号 / 组号 / 本店菜单 */
+var QR_LIMIT = 1500;   /* 二维码内容上限（字符），超过则逐级精简 */
+function packMenu(descLen, withSpec){
+  if(descLen === undefined) descLen = 18;
+  if(withSpec === undefined) withSpec = true;
+  var c = (S.cats || []).slice(), m = [];
+  S.menu.forEach(function(d){
+    var sp = '';
+    if(withSpec && d.specs && d.specs.length){
+      sp = d.specs.map(function(x){
+        var p = (d.specPrice && d.specPrice[x.n] != null) ? d.specPrice[x.n] : d.price;
+        return x.n + ':' + p;
+      }).join('|');
+    }
+    m.push([c.indexOf(d.cat), d.name, d.price, d.unit || '', d.emoji || '', sp, (d.desc || '').slice(0, descLen), d.soldOut ? 1 : 0]);
+  });
+  var o = { v: 1, u: ACC, s: ACC_NAME, c: c, m: m,
+             ids: S.menu.map(function(x){ return x.id; }) };
+  if(!withSpec) o.r = 1;   /* 已省略规格 */
+  if(descLen === 0) o.d = 1;/* 已省略描述 */
+  return o;
+}
+function unpackMenu(p){
+  try{
+    var c = p.c || [], out = [], i = 0;
+    (p.m || []).forEach(function(a){
+      i++;
+      var specs = null, specPrice = null;
+      if(a[5]){
+        specs = []; specPrice = {};
+        String(a[5]).split(/\u0001|[|/]/).forEach(function(kv){
+          if(!kv) return;
+          var j = kv.lastIndexOf(':'); if(j < 0) return;
+          var nm = kv.slice(0, j), pr = parseFloat(kv.slice(j + 1));
+          if(!nm) return;
+          specs.push({ n: nm });
+          specPrice[nm] = isNaN(pr) ? a[2] : pr;
+        });
+        if(!specs.length){ specs = null; specPrice = null; }
+      }
+      var pr = parseFloat(a[2]);
+      out.push({
+        id: (p.ids && p.ids[i - 1]) || ('g' + i),
+        cat: c[a[0]] || (c[0] || '热菜'), name: a[1], price: isNaN(pr) ? 0 : pr,
+        unit: a[3] || '', emoji: a[4] || '\u{1F37D}\uFE0F', desc: a[6] || '', specs: specs,
+        specPrice: specPrice, soldOut: (String(a[7]) === '1'), img: ''
+      });
+    });
+    return out;
+  }catch(e){ return []; }
+}
+function parseHashPayload(){
+  var h = String(location.hash || '');
+  var m = /[#&]m=([A-Za-z0-9+/=]+)/.exec(h);
+  if(!m) return null;
+  try{ return JSON.parse(b64d(m[1])); }catch(e){ return null; }
+}
+
+/* ==========================================================
+   紧凑打包 + LZSS 压缩
+   目的：把二维码里的网址压到最短——点越密越难扫，
+   微信常常识别失败、退化成"显示一串网址"。
+   ========================================================== */
+var B64U = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+function b64uEnc(bytes){
+  var r = '', i, n1, n2, n3;
+  for(i = 0; i < bytes.length; i += 3){
+    n1 = bytes[i]; n2 = (i + 1 < bytes.length) ? bytes[i+1] : 0; n3 = (i + 2 < bytes.length) ? bytes[i+2] : 0;
+    r += B64U.charAt(n1 >> 2);
+    r += B64U.charAt(((n1 & 3) << 4) | (n2 >> 4));
+    if(i + 1 < bytes.length) r += B64U.charAt(((n2 & 15) << 2) | (n3 >> 6));
+    if(i + 2 < bytes.length) r += B64U.charAt(n3 & 63);
+  }
+  return r;
+}
+function b64uDec(s){
+  var out = [], buf = 0, bits = 0, i, v;
+  s = String(s || '').replace(/[^A-Za-z0-9\-_]/g, '');
+  for(i = 0; i < s.length; i++){
+    v = B64U.indexOf(s.charAt(i)); if(v < 0) continue;
+    buf = (buf << 6) | v; bits += 6;
+    if(bits >= 8){ bits -= 8; out.push((buf >> bits) & 255); }
+  }
+  return out;
+}
+/* UTF-16 字符级 LZSS：窗口 4096，匹配长度 2~17 */
+function lzEnc(s){
+  var out = [], i = 0, n = s.length, flagPos = -1, flag = 0, bc = 0;
+  var bestLen, bestOff, maxLen, start, j, l, o, cc;
+  while(i < n){
+    if(bc === 0){ flagPos = out.length; out.push(0); flag = 0; bc = 8; }
+    bestLen = 0; bestOff = 0; maxLen = Math.min(17, n - i); start = Math.max(0, i - 4095);
+    if(maxLen >= 2){
+      for(j = i - 1; j >= start; j--){
+        l = 0; while(l < maxLen && s.charAt(j + l) === s.charAt(i + l)) l++;
+        if(l > bestLen){ bestLen = l; bestOff = i - j; if(l === maxLen) break; }
+      }
+    }
+    if(bestLen >= 2){
+      flag |= (1 << (bc - 1)); o = bestOff - 1;
+      out.push(((bestLen - 2) << 4) | ((o >> 8) & 15)); out.push(o & 255);
+      out[flagPos] = flag; i += bestLen; bc--;
+    }else{
+      cc = s.charCodeAt(i);
+      out.push((cc >> 8) & 255); out.push(cc & 255);
+      out[flagPos] = flag; i += 1; bc--;
+    }
+  }
+  return out;
+}
+function lzDec(bytes){
+  var out = '', i = 0, n = bytes.length, flag = 0, bc = 0, b1, b2, len, off, st, k;
+  while(i < n){
+    if(bc === 0){ flag = bytes[i++]; bc = 8; }
+    if(flag & (1 << (bc - 1))){
+      if(i + 1 >= n) break;
+      b1 = bytes[i++]; b2 = bytes[i++];
+      len = ((b1 >> 4) & 15) + 2; off = (((b1 & 15) << 8) | b2) + 1; st = out.length - off;
+      for(k = 0; k < len; k++) out += (st + k >= 0 && st + k < out.length) ? out.charAt(st + k) : ' ';
+    }else{
+      if(i + 1 >= n) break;
+      out += String.fromCharCode((bytes[i] << 8) | bytes[i + 1]); i += 2;
+    }
+    bc--;
+  }
+  return out;
+}
+/* 分隔符转义：文本里的 \ , ; | 前加反斜杠 */
+function escT(s){ return String(s == null ? '' : s).replace(/\u0001/g, '').replace(/[\\;,|]/g, function(c){ return '\\' + c; }); }
+function splitEsc(s, ch){
+  var out = [], cur = '', i = 0, c;
+  while(i < s.length){
+    c = s.charAt(i);
+    if(c === '\\'){ cur += s.charAt(i + 1) || ''; i += 2; continue; }
+    if(c === ch){ out.push(cur); cur = ''; i++; continue; }
+    cur += c; i++;
+  }
+  out.push(cur);
+  return out;
+}
+/* 紧凑文本：t版本号 | 组号 | 店名 | 组显示名 | 分类 | 菜品id | 菜品行 */
+function packTight(descLen, withSpec, withEmoji){
+  if(descLen === undefined) descLen = 18;
+  if(withSpec === undefined) withSpec = true;
+  if(withEmoji === undefined) withEmoji = true;
+  var c = (S.cats || []).slice(), rows = [], i, k, d, nm, pr, sps, sp, body;
+  for(i = 0; i < S.menu.length; i++){
+    d = S.menu[i]; sp = '';
+    if(withSpec && d.specs && d.specs.length){
+      sps = [];
+      for(k = 0; k < d.specs.length; k++){
+        nm = d.specs[k].n;
+        pr = (d.specPrice && d.specPrice[nm] != null) ? d.specPrice[nm] : d.price;
+        sps.push(escT(nm) + ':' + pr);
+      }
+      sp = sps.join('\u0001');   /* 专用分隔符：不会与菜名里的标点冲突 */
+    }
+    rows.push([c.indexOf(d.cat), escT(d.name), d.price, escT(d.unit || ''),
+      withEmoji ? (d.emoji || '') : '', sp, escT((d.desc || '').slice(0, descLen)), d.soldOut ? 1 : 0].join(','));
+  }
+  body = ['1', escT(ACC || ''), escT(ACC_NAME || ''), escT(guestGroupName(ACC, ACC_NAME)),
+    c.map(escT).join(','), S.menu.map(function(x){ return escT(x.id); }).join(','), rows.join(';')].join('|');
+  /* 尾部校验段：网址被转发得残缺时能立刻发现，而不是端出一桌残缺菜单 */
+  return body + '|' + checksum36(body);
+}
+function checksum36(s){
+  var c = 0, i;
+  for(i = 0; i < s.length; i++){ c = (c * 31 + s.charCodeAt(i)) & 0x3FFFFFF; }
+  return c.toString(36);
+}
+/* 找最后一个未转义的分隔符位置（校验段身上不会有分隔符） */
+function lastSepIndex(s, ch){
+  var i = 0, pos = -1;
+  while(i < s.length){
+    if(s.charAt(i) === '\\'){ i += 2; continue; }
+    if(s.charAt(i) === ch) pos = i;
+    i++;
+  }
+  return pos;
+}
+function unpackTight(t){
+  var seg, rows, p, i, body, k;
+  if(!t) return null;
+  k = lastSepIndex(t, '|');
+  if(k < 0) return null;
+  body = t.slice(0, k);
+  if(checksum36(body) !== t.slice(k + 1)) return null;   /* 链接残缺 */
+  seg = splitEsc(body, '|');
+  if(seg.length < 7) return null;
+  p = { v: parseInt(seg[0], 10) || 1, u: seg[1], s: seg[2], gn: seg[3],
+        c: splitEsc(seg[4], ','), ids: splitEsc(seg[5], ','), m: [] };
+  rows = splitEsc(seg[6], ';');
+  for(i = 0; i < rows.length; i++){
+    if(!rows[i]) continue;
+    var a = splitEsc(rows[i], ',');
+    if(a.length < 8) continue;
+    p.m.push([parseInt(a[0], 10) || 0, a[1], a[2], a[3], a[4], a[5], a[6], a[7]]);
+  }
+  if(!p.m.length) return null;
+  return p;
+}
+/* 组 Takeaway：第 N 组（供顾客端显示） */
+function guestGroupName(u, nm){
+  if(nm) return displayName(u, '');
+  return u ? displayName(u, '') : '顾客体验';
+}
+/* 逐档降级：完整 → 缩描述 → 去描述 → 去规格 → 仅菜名与价格
+   目标是让最终网址短到手机一扫就开 */
+var QR_TARGET = 620;    /* 网址字符数软目标，超出就往下一档精简 */
+var QR_LEVELS = [
+  [18, true,  true,  '完整菜单'],
+  [10, true,  true,  '描述缩到 10 字'],
+  [0,  true,  true,  '略去菜品描述'],
+  [0,  false, true,  '略去规格与描述'],
+  [0,  false, false, '仅保留菜名与价格']
+];
+function shareURL(){
+  return shareInfo().url;
+}
+function shareInfo(){
+  var best = null, i, txt, url;
+  for(i = 0; i < QR_LEVELS.length; i++){
+    txt = packTight(QR_LEVELS[i][0], QR_LEVELS[i][1], QR_LEVELS[i][2]);
+    url = SHARE_BASE + '?g=' + encodeURIComponent(ACC || '') + '&z=1'
+      + (OPEN_STATE ? '' : '&cl=1') + '&d=' + b64uEnc(lzEnc(txt));
+    if(best === null || url.length < best.url.length) best = { url: url, lv: i, name: QR_LEVELS[i][3], raw: txt.length };
+    if(url.length <= QR_TARGET) return best;
+  }
+  return best;
+}
+function drawQR(cv, text, px){
+  if(typeof qrcode !== 'function') return false;
+  var qr;
+  try{ qr = qrcode(0, 'M'); qr.addData(text); qr.make(); }
+  catch(e){ return false; }
+  var n = qr.getModuleCount(), quiet = 4;
+  var cell = Math.max(2, Math.floor(px / (n + quiet * 2)));
+  var size = (n + quiet * 2) * cell;
+  cv.width = size; cv.height = size;
+  cv.style.width = size + 'px'; cv.style.height = size + 'px';
+  if(!cv.getContext) return false;
+  var ctx = cv.getContext('2d');
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, size, size);
+  ctx.fillStyle = '#1F2733';
+  for(var r = 0; r < n; r++) for(var c = 0; c < n; c++) if(qr.isDark(r, c)) ctx.fillRect((c + quiet) * cell, (r + quiet) * cell, cell, cell);
+  return true;
+}
+function qrModules(text){
+  try{ var q = qrcode(0, 'M'); q.addData(text); q.make(); return q.getModuleCount(); }
+  catch(e){ return 0; }
+}
+function paintQRs(){
+  var list = document.querySelectorAll('canvas[data-qr]'), i;
+  for(i = 0; i < list.length; i++){
+    var cv = list[i], txt = cv.getAttribute('data-qr');
+    if(cv._q === txt) continue;
+    if(drawQR(cv, txt, parseInt(cv.getAttribute('data-qrpx') || '180', 10))) cv._q = txt;
+  }
+}
+
+/* ================= 开放时间日程（自动开、自动关，学期永不再发布） =================
+   改开放时间只改下面这一段，然后发布一次，整学年都不用再管：学期结束当天自动关闭，
+   新学期开学当天自动开放，期间的节假日、非授课时段也可以一并挡掉。
+
+     windows  起止日期窗口，可写多段（一学期一段）。例：[['2026-09-07','2027-01-18']]
+              填 [] 表示不启用日程，退回手工开关。
+     weekly   每周的开放时段，按课时排课最有用。d = 1 周一 … 7 周日
+              例：[{d:1,s:'08:00',e:'11:30'},{d:4,s:'13:30',e:'16:00'}]
+              填 [] 表示窗口内每天都开，不看星期与钟点。
+     daily    每天的开放时段。例：{s:'07:30',e:'17:00'}；不用就填 null。
+     holidays 这几日一律关闭（放假、考试周、调休）。例：['2026-10-01','2026-10-02'] */
+var SCHEDULE = {
+  windows:  [ ['2026-09-01', '2027-01-25'] ],   /* 2026–2027 学年第一学期（开学 9 月初 — 学期结束 1 月底） */
+  weekly:   [],
+  daily:    null,
+  holidays: []
+};
+
+function pad2(n){ return (n < 10 ? '0' : '') + n; }
+function dateStr(d){ return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
+function timeStr(d){ return pad2(d.getHours()) + ':' + pad2(d.getMinutes()); }
+function dowOf(d){ var w = d.getDay(); return w === 0 ? 7 : w; }
+var DOW_CN = ['', '一', '二', '三', '四', '五', '六', '日'];
+
+/* 按本机时间判断现在该不该开放，返回 {open, reason}
+   reason 直接说给敲门的人听，所以要把「什么时候还会开放」讲清楚 */
+function evalSchedule(now){
+  var res = { open:true, reason:'' }, d = now || new Date();
+  var W = (SCHEDULE && SCHEDULE.windows) || [], i;
+  if(!W.length) return res;                                     /* 没配日期 → 日程不生效 */
+  var t = dateStr(d), win = null;
+  for(i = 0; i < W.length; i++){ if(t >= W[i][0] && t <= W[i][1]){ win = W[i]; break; } }
+  if(!win){
+    res.open = false;
+    res.reason = (t < W[0][0])
+      ? ('本系统的开放时间是 ' + W[0][0] + ' 至 ' + W[0][1] + '，还没到开始日期。')
+      : ('本学期已结束（开放时间为 ' + W[W.length - 1][0] + ' 至 ' + W[W.length - 1][1] + '），系统已自动关闭。');
+    return res;
+  }
+  var hol = (SCHEDULE && SCHEDULE.holidays) || [];
+  for(i = 0; i < hol.length; i++){
+    if(t === hol[i]){ res.open = false; res.reason = '今天（' + hol[i] + '）不在开放范围内。'; return res; }
+  }
+  var hm = timeStr(d);
+  var wk = (SCHEDULE && SCHEDULE.weekly) || [];
+  if(wk.length){
+    var dow = dowOf(d), segs = [], hit = false;
+    for(i = 0; i < wk.length; i++){
+      if(wk[i].d !== dow) continue;
+      segs.push(wk[i].s + '-' + wk[i].e);
+      if(hm >= wk[i].s && hm <= wk[i].e) hit = true;
+    }
+    if(!hit){
+      res.open = false;
+      res.reason = segs.length
+        ? ('今天是周' + DOW_CN[dow] + '，开放时段为 ' + segs.join('、') + '，现在不在开放时间内。')
+        : ('今天（周' + DOW_CN[dow] + '）没有安排课时，系统暂不开放。');
+      return res;
+    }
+  }
+  var dy = SCHEDULE && SCHEDULE.daily;
+  if(dy && dy.s && dy.e && (hm < dy.s || hm > dy.e)){
+    res.open = false;
+    res.reason = '今天的开放时段为 ' + dy.s + ' 至 ' + dy.e + '，现在不在开放时间内。';
+    return res;
+  }
+  return res;
+}
+/* 一句话讲清开放安排，显示在登录页底部 */
+function schedSummary(){
+  var W = (SCHEDULE && SCHEDULE.windows) || [];
+  if(!W.length) return '';
+  var s = '开放日期：' + W[0][0] + ' 至 ' + W[0][1];
+  if(W.length > 1) s += '（共 ' + W.length + ' 段）';
+  var wk = SCHEDULE.weekly || [];
+  if(wk.length){
+    var g = {};
+    wk.forEach(function(x){ (g[x.d] = g[x.d] || []).push(x.s + '-' + x.e); });
+    var parts = [];
+    Object.keys(g).forEach(function(k){ parts.push('周' + DOW_CN[+k] + ' ' + g[k].join('、')); });
+    s += '<br>开放时段：' + parts.join('；');
+  }else if(SCHEDULE.daily && SCHEDULE.daily.s){
+    s += '<br>每日 ' + SCHEDULE.daily.s + ' 至 ' + SCHEDULE.daily.e;
+  }else{
+    s += '<br>开放期间全天可用';
+  }
+  return s;
+}
+function paintSchedNote(){
+  var el = document.getElementById('schedNote'); if(!el) return;
+  var t = schedSummary();
+  el.innerHTML = t ? ('系统' + t) : '';
+  el.style.display = t ? '' : 'none';
+}
+
+/* ================= 营业 / 闭店 总闸 =================
+   分三层，从「只管新码」到「连旧码也管」：
+   ① 本机总闸 OPEN_STATE：教师点页首按钮即时切换，影响此后生成的二维码
+   ② 二维码内标记 &cl=1：同学扫新码直接进闭店页（已发出的旧码不含此标记）
+   ③ 线上 status.txt：全局锁，所有扫码打开都会先读它，已发出的旧码也一并关住
+   ④ 开放时间日程：到点自动开、自动关，全程不用找人重发布 */
+var LS_OPEN = 'emenu_open_v1';
+var OPEN_STATE = true;      /* true=营业中   false=已闭店 */
+var CLOSED_REASON = '';     /* 全局锁带回来的闭店说明 */
+
+function loadOpen(){
+  var v = null;
+  try{ v = localStorage.getItem(LS_OPEN); }catch(e){}
+  OPEN_STATE = (v === '0') ? false : true;
+}
+function isOpen(){ return OPEN_STATE; }
+function setOpen(v){
+  OPEN_STATE = !!v;
+  try{ localStorage.setItem(LS_OPEN, OPEN_STATE ? '1' : '0'); }catch(e){}
+  markAdminDevice();
+  if(isGuest) return;
+  syncOpenBtn();
+  render();
+}
+function toggleOpen(){
+  if(OPEN_STATE){
+    uiConfirm('关闭点单端',
+      '这会把本机切到「闭店」，此后生成的二维码，同学扫了会看到「已暂停点单」。\n'
+      + '你自己这台电脑不受影响，仍可看订单、改菜单、做统计。\n\n'
+      + '要让其他人连登录页和建店都进不去（整站关闭），需要同步到线上状态文件，跟我说一声即可。\n\n确定现在关闭吗？',
+      function(){ setOpen(false); toast('已切换为闭店 · 新二维码将提示暂停点单'); }, '关闭点单');
+  }else{
+    setOpen(true);
+    toast('已重新开放点单');
+  }
+}
+function syncOpenBtn(){
+  var b = document.getElementById('openBtn'); if(!b) return;
+  b.className = 'openbtn' + (OPEN_STATE ? '' : ' off');
+  b.innerHTML = OPEN_STATE ? '🟢 营业中<small>点此关闭</small>' : '🔴 已闭店<small>点此开放</small>';
+  b.style.display = isGuest ? 'none' : '';
+}
+/* 闭店页：盖住整个系统，只留一句说明 */
+function showClosed(reason){
+  var el = document.getElementById('closedWrap'); if(!el) return;
+  hideApp();
+  try{ var lw = document.getElementById('loginWrap'); if(lw) lw.style.display = 'none'; }catch(e){}
+  el.style.display = '';
+  el.innerHTML = '<div class="closedbox">'
+    + '<div class="cico">🔴</div>'
+    + '<h3>已暂停点单</h3>'
+    + '<div class="cr">' + esc(reason || '老师已暂时关闭本系统，请等待重新开放。') + '</div>'
+    + '<div class="cnote">苏州旅游职业学院 · 电子菜单点餐仿真系统<br>'
+    + '本页由任课教师统一开关，重新开放后刷新即可进入。</div>'
+    + '<button class="cbtn" onclick="location.reload()">🔄 重新检查是否已开放</button>'
+    + '</div>';
+}
+function hideClosed(){
+  var el = document.getElementById('closedWrap'); if(!el) return;
+  el.style.display = 'none'; el.innerHTML = '';
+}
+/* 全局锁：读线上 status.txt（内容形如 closed|原因 或 open|）
+   取不到 / 超时一律视为开放，保证断网时系统照常可用 */
+function gateCheck(cb){
+  var done = false, timer = null;
+  function fin(closed, reason){
+    if(done) return; done = true;
+    if(timer) clearTimeout(timer);
+    if(closed){
+      CLOSED_REASON = reason || '老师已暂时关闭本系统，请等待重新开放。';
+      showClosed(CLOSED_REASON);
+    }else{
+      hideClosed();
+    }
+    if(cb) cb(!closed);
+  }
+  if(!isGuest){ fin(false); return; }          /* 教师本人不受限制 */
+  if(typeof fetch !== 'function'){ fin(false); return; }
+  try{
+    timer = setTimeout(function(){ fin(false); }, 2500);
+    fetch(SHARE_BASE + 'status.txt?t=' + Date.now(), { cache:'no-store' })
+      .then(function(r){ if(!r.ok) throw new Error('nf'); return r.text(); })
+      .then(function(txt){
+        var seg = String(txt || '').split('|');
+        var st = String(seg[0] || '').trim().toLowerCase();
+        fin(st === 'closed' || st === 'off' || st === '0', String(seg[1] || '').trim());
+      })
+      .catch(function(){ fin(false); });
+  }catch(e){ fin(false); }
+}
+
+/* ================= 整站访问闸门 =================
+   与上面的「点单端闭店」不同：这一层挡的是整个系统——
+   登录、首次建店、商家后台、顾客点单，关闭期间一律进不去。
+   状态以线上 status.txt 为准（格式：closed|原因|口令哈希），
+   取不到则退回本机开关；本机操作过开关的设备视为管理员设备，不受闸门拦截。 */
+var LS_PIN_OK = 'emenu_pin_ok_v1';     /* 已通过口令的哈希，换口令即失效 */
+var LS_ADMIN  = 'emenu_admin_v1';      /* 本机操作过总闸 → 管理员设备 */
+var PIN_HASH  = 'yjc1fz';              /* 默认口令 2026 的哈希；status.txt 未带第三段时用这个兜底，保证教师永远进得去 */
+
+function hash36(s){
+  var c = 5381, i;
+  s = String(s == null ? '' : s);
+  for(i = 0; i < s.length; i++){ c = ((c << 5) + c + s.charCodeAt(i)) & 0x7FFFFFFF; }
+  return c.toString(36);
+}
+function parseStatus(txt){
+  var s = String(txt == null ? '' : txt).split('|');
+  var st = String(s[0] || '').trim().toLowerCase();
+  return {
+    closed: (st === 'closed' || st === 'off' || st === '0'),
+    reason: String(s[1] || '').trim(),
+    hash: String(s[2] || '').trim()
+  };
+}
+function fetchStatus(cb){
+  if(typeof fetch !== 'function'){ cb(null); return; }
+  var done = false, timer = null;
+  function fin(v){ if(done) return; done = true; if(timer) clearTimeout(timer); cb(v); }
+  try{
+    timer = setTimeout(function(){ fin(null); }, 2500);
+    fetch(SHARE_BASE + 'status.txt?t=' + Date.now(), { cache:'no-store' })
+      .then(function(r){ if(!r.ok) throw new Error('nf'); return r.text(); })
+      .then(function(t){ fin(parseStatus(t)); })
+      .catch(function(){ fin(null); });
+  }catch(e){ fin(null); }
+}
+function isAdminDevice(){
+  var v = null;
+  try{ v = localStorage.getItem(LS_ADMIN); }catch(e){}
+  return v === '1';
+}
+function markAdminDevice(){
+  try{ localStorage.setItem(LS_ADMIN, '1'); }catch(e){}
+}
+function pinPassed(hash){
+  if(!hash) return false;
+  var v = null;
+  try{ v = localStorage.getItem(LS_PIN_OK); }catch(e){}
+  return v === hash;
+}
+function hideGate(){
+  var el = document.getElementById('gateWrap');
+  if(el){ el.style.display = 'none'; el.innerHTML = ''; el.setAttribute('data-hash', ''); }
+}
+function showGate(reason, hash){
+  var el = document.getElementById('gateWrap'); if(!el) return;
+  hideApp();
+  try{ var lw = document.getElementById('loginWrap'); if(lw) lw.style.display = 'none'; }catch(e){}
+  var h = '<div class="closedbox">'
+    + '<div class="cico">🔒</div>'
+    + '<h3>系统暂未开放</h3>'
+    + '<div class="cr">' + esc(reason || '本系统当前处于关闭状态，请在课堂时间由任课教师开放后再访问。') + '</div>';
+  if(hash){
+    h += '<div class="gatepin"><input id="gatePin" type="password" inputmode="numeric" maxlength="8" '
+      + 'placeholder="任课教师口令" onkeydown="if(event.key===\'Enter\')tryGatePin()">'
+      + '<button class="cbtn" onclick="tryGatePin()">进入</button></div>'
+      + '<div class="gaterr" id="gateErr"></div>';
+  }
+  h += '<div class="cnote">苏州旅游职业学院 · 电子菜单点餐仿真系统<br>'
+    + '关闭期间无法登录、无法新建店铺，也无法扫码点单。</div>'
+    + '</div>';
+  el.innerHTML = h;
+  el.setAttribute('data-hash', hash || '');
+  el.style.display = '';
+}
+function tryGatePin(){
+  var el = document.getElementById('gateWrap');
+  var hash = el ? String(el.getAttribute('data-hash') || '') : '';
+  var inp = document.getElementById('gatePin');
+  var v = inp ? String(inp.value || '').trim() : '';
+  var err = document.getElementById('gateErr');
+  if(!hash){ if(err) err.textContent = '未设置口令，无法进入。'; return; }
+  if(hash36(v) !== hash){
+    if(err) err.textContent = '口令不对，请向任课教师确认。';
+    if(inp){ inp.value = ''; inp.focus(); }
+    return;
+  }
+  try{ localStorage.setItem(LS_PIN_OK, hash); }catch(e){}
+  hideGate();
+  hideClosed();
+  initAppBody();
+}
+/* 启动前先过闸：关着就停在这里，什么都不渲染 */
+function gateBoot(cb){
+  var localClosed = !OPEN_STATE;
+  /* 管理员设备且本机是开放态：直接放行，不再等网络 */
+  if(isAdminDevice() && !localClosed){ hideGate(); cb(true); return; }
+  fetchStatus(function(st){
+    var sch = evalSchedule();
+    var closed = localClosed || !!(st && st.closed) || !sch.open;
+    if(!closed){ hideGate(); cb(true); return; }
+    /* 本机自己关的：操作者即管理员，不锁自己 */
+    if(localClosed && isAdminDevice()){ hideGate(); cb(true); return; }
+    var hash = (st && st.hash) || PIN_HASH;
+    if(pinPassed(hash)){ hideGate(); cb(true); return; }
+    /* 优先讲人手关闭的原因，其次才是时间日程 */
+    showGate((localClosed ? '' : ((st && st.closed && st.reason) || sch.reason)) || '', hash);
+    cb(false);
+  });
+}
+
+/* ================= 启动 ================= */
+function parseURL(){
+  var q = {}, s = String(location.search || '').replace(/^\?/, '');
+  if(s) s.split('&').forEach(function(kv){
+    var i = kv.indexOf('='); if(i < 0) return;
+    try{ q[decodeURIComponent(kv.slice(0, i))] = decodeURIComponent(kv.slice(i + 1).replace(/\+/g, ' ')); }catch(e){}
+  });
+  return q;
+}
+function initApp(){
+  loadOpen();
+  /* 先过整站闸门，通过后才渲染任何界面 */
+  gateBoot(function(pass){ if(pass) initAppBody(); });
+}
+function initAppBody(){
+  paintSchedNote();          /* 登录页底部写明本学期的开放安排 */
+  /* ① 新版链接：?g=组号&z=1&d=压缩后的菜单（网址短、二维码稀疏，微信一扫就开） */
+  var q0 = parseURL(), p = null, badLink = false;
+  if(q0.d && q0.z){
+    try{ p = unpackTight(lzDec(b64uDec(q0.d))); }catch(e){ p = null; }
+    if(!p) badLink = true;
+  }
+  /* ② 兼容旧链接：#u=组号&m=base64(JSON) */
+  if(!p){ var hp = parseHashPayload(); if(hp && hp.m && hp.c) p = hp; }
+  if(p && p.m && p.c){
+    ACC = normUser(p.u || q0.g || '');
+    ACC_NAME = p.s || '';
+    GUEST_GROUP = p.gn || guestGroupName(ACC, ACC_NAME);
+    isGuest = true;
+    if(p.t){ curTable = String(p.t).replace(/[<>"'&\\]/g, '').slice(0, 12) || 'A01'; }
+    if(TABLES.indexOf(curTable) < 0) TABLES = TABLES.concat([curTable]);
+    /* 二维码里带闭店标记：本组老师关闭了点单端。
+       在还原菜单之前就拦下，菜单数据不会落到这台设备上 */
+    if(q0.cl === '1'){
+      showClosed('「' + GUEST_GROUP + '」的老师已暂停点单，请等待重新开放。');
+      return;
+    }
+    var old = null;
+    try{ old = JSON.parse(localStorage.getItem(lsKey()) || 'null'); }catch(e){}
+    S = { seq:(old && old.seq) || 100, cats:p.c || [], menu:unpackMenu(p) || [], orders:(old && old.orders) || [] };
+    save();
+    showApp();
+    takeOrderLink();
+    gateCheck();               /* 全局锁：让已发出的旧二维码也一并关住 */
+    toast('已进入「' + GUEST_GROUP + '」的点餐页');
+    return;
+  }
+  if(badLink){
+    uiAlert('二维码链接不完整', '这个网址在转发/复制过程中被截断了，菜单数据没法还原。\n\n请回到本组的「点单二维码」页面重新生成二维码，'
+      + '直接截图发给同学扫描，不要把网址手动复制来复制去。');
+  }
+  var q = parseURL();
+  if(q.t || q.u){
+    ACC = normUser(q.u || '');
+    isGuest = true;
+    var m = acctMap();
+    ACC_NAME = ACC ? displayName(ACC, m[ACC] && m[ACC].nm) : '顾客体验';
+    if(ACC && m[ACC] && m[ACC].nm) ACC_NAME = m[ACC].nm;
+    GUEST_GROUP = guestGroupName(ACC, '');
+    if(q.t){
+      q.t = String(q.t).replace(/[<>"'&\\]/g, '').slice(0, 12) || 'A01';
+      curTable = q.t;
+      if(TABLES.indexOf(curTable) < 0) TABLES = TABLES.concat([curTable]);
+    }
+    S = load();
+    showApp();
+    takeOrderLink();
+    gateCheck();
+    if(q.t) toast('已进入 ' + curTable + ' 桌点餐页');
+    return;
+  }
+  var saved = null;
+  try{ saved = localStorage.getItem(LS_LOGIN); }catch(e){}
+  if(saved && acctMap()[saved]){
+    ACC = saved;
+    ACC_NAME = displayName(saved, acctMap()[saved].nm);
+    S = load();
+    showApp();
+    takeOrderLink();
+    return;
+  }
+  hideApp();
+  showLogin();
+}
+
+/* ================= 渲染入口 & 跨窗口同步 ================= */
+function render(){
+  if(view==='g') renderGuest(); else renderBoss();
+  paintQRs();
+}
+window.addEventListener('storage', function(ev){
+  if(ev.key===lsKey()){ S=load(); render(); }
+});
+/* 启动由教学适配层管理 */
+/* 每 30 秒刷新一次（更新"几分钟前"） */
+setInterval(function(){ if(view==='b'&&subView==='kds') render(); }, 30000);
+</script>
+<script src="/native-bridge.js"></script></body>
+</html>

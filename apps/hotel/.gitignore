@@ -1,0 +1,5 @@
+data/
+*.pid
+*.log
+cloudflared.exe
+登录信息.txt
