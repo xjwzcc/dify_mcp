@@ -4,8 +4,8 @@ const path = require('node:path');
 const { backup } = require('node:sqlite');
 const { openDatabase } = require('../storage/database.cjs');
 
-async function exportFeishu(destination, env = process.env) {
-  if (env.STORAGE_BACKEND !== 'feishu') throw Error('Export requires STORAGE_BACKEND=feishu');
+async function exportRemote(destination, env = process.env) {
+  if (!['feishu', 'oss'].includes(env.STORAGE_BACKEND)) throw Error('Export requires STORAGE_BACKEND=feishu or oss');
   for (const key of ['TEACHER_PASSWORD', 'CATERING_CLASS_CODE', 'HOTEL_CLASS_CODE'])
     if (!env[key]) throw Error('Missing configuration: ' + key);
   const target = path.resolve(destination);
@@ -39,6 +39,10 @@ async function exportFeishu(destination, env = process.env) {
     throw Error('Export incomplete; do not deploy this directory: ' + error.message);
   }
 }
+async function exportFeishu(destination, env = process.env) {
+  if (env.STORAGE_BACKEND !== 'feishu') throw Error('Export requires STORAGE_BACKEND=feishu');
+  return exportRemote(destination, env);
+}
 if (require.main === module) {
   const args = process.argv.slice(2);
   if (args.length !== 2 || args[0] !== '--stopped-writer') {
@@ -47,4 +51,4 @@ if (require.main === module) {
   } else exportFeishu(args[1]).then(target => console.log('Export complete: ' + target))
     .catch(error => { console.error(error.message); process.exitCode = 1; });
 }
-module.exports = { exportFeishu };
+module.exports = { exportFeishu, exportRemote };

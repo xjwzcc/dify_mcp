@@ -9,8 +9,8 @@ const PORT=Number(process.env.PORT||8787),HOST=process.env.HOST||'0.0.0.0';
 const dataDir=process.env.DATA_DIR||path.join(__dirname,'data');fs.mkdirSync(dataDir,{recursive:true});
 const storage=await openDatabase('hotel',path.join(dataDir,'hotel.sqlite'));
 const configPath=path.join(dataDir,'config.json');
-if(storage.mode!=='feishu'&&!fs.existsSync(configPath))fs.writeFileSync(configPath,JSON.stringify({teacherPassword:process.env.TEACHER_PASSWORD||crypto.randomBytes(18).toString('base64url'),classCode:process.env.CLASS_CODE||crypto.randomBytes(9).toString('base64url')},null,2));
-const config=storage.mode==='feishu'?{teacherPassword:process.env.TEACHER_PASSWORD,classCode:process.env.CLASS_CODE}:JSON.parse(fs.readFileSync(configPath,'utf8'));
+if(!storage.remote&&!fs.existsSync(configPath))fs.writeFileSync(configPath,JSON.stringify({teacherPassword:process.env.TEACHER_PASSWORD||crypto.randomBytes(18).toString('base64url'),classCode:process.env.CLASS_CODE||crypto.randomBytes(9).toString('base64url')},null,2));
+const config=storage.remote?{teacherPassword:process.env.TEACHER_PASSWORD,classCode:process.env.CLASS_CODE}:JSON.parse(fs.readFileSync(configPath,'utf8'));
 const sql=storage.db;
 sql.exec(`PRAGMA journal_mode=${process.env.SQLITE_JOURNAL_MODE==='DELETE'?'DELETE':'WAL'};PRAGMA synchronous=FULL;PRAGMA busy_timeout=5000;
  CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,name TEXT NOT NULL,role TEXT NOT NULL,password TEXT NOT NULL,state TEXT,version INTEGER NOT NULL DEFAULT 1,updated TEXT NOT NULL);
@@ -47,7 +47,7 @@ function validateState(s){
  for(const c of s.courses)if(!Array.isArray(c.members)||!c.ratings||c.members.some(id=>typeof id!=='string'))throw error(400,'培训记录无效');
  return s;
 }
-async function body(req){let data='';for await(const part of req){data+=part;if(Buffer.byteLength(data)>4*1024*1024)throw error(413,'提交数据超过4MB');}try{return JSON.parse(data||'{}');}catch{throw error(400,'请求JSON无效');}}
+async function body(req){req.setEncoding('utf8');let data='';for await(const part of req){data+=part;if(Buffer.byteLength(data)>4*1024*1024)throw error(413,'提交数据超过4MB');}try{return JSON.parse(data||'{}');}catch{throw error(400,'请求JSON无效');}}
 function json(res,status,value,headers={}){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...headers});res.end(JSON.stringify(value));}
 function auth(req){const cookie=String(req.headers.cookie||'').split(';').map(s=>s.trim()).find(s=>s.startsWith('hotel_session='));if(!cookie)return null;const token=crypto.createHash('sha256').update(cookie.slice(14)).digest('hex');return sql.prepare('SELECT u.*,s.token AS token FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND s.expires>?').get(token,Date.now());}
 const classes=require('./classes.cjs')({sql,body,json,error,audit,changed,config});
@@ -55,6 +55,13 @@ function snapshot(user){const u=sql.prepare('SELECT * FROM users WHERE id=?').ge
 function requireTeacher(u){if(u.role!=='teacher')throw error(403,'仅教师可执行此操作');}
 function cookie(value,secure=false){return 'hotel_session='+value+'; HttpOnly; SameSite=Strict; Path=/hotel/; Max-Age=2592000'+(secure?'; Secure':'');}
 const learningRoute=require('./learning.cjs')({sql,body,json,error,audit,changed,evaluate,now,classes});
+const accountBridge=require('../../storage/account-bridge.cjs')({
+ get:id=>sql.prepare('SELECT * FROM users WHERE id=?').get(id),check:(password,u)=>checkPassword(password,u.password),
+ enrollment:b=>{const c=classes.get(b.classId||'default');if(!c.entry||!c.enrollment)throw error(423,'本班未开放新生注册');if(b.classCode!==c.code)throw error(403,'班级口令不正确')},
+ create:b=>sql.prepare('INSERT INTO users(id,name,role,password,state,updated,class_id) VALUES(?,?,?,?,?,?,?)').run(b.id,b.name,b.role,hash(b.provision),b.role==='student'?JSON.stringify(seed()):null,now(),b.role==='student'?(b.classId||'default'):'default'),
+ session:u=>{classes.requireAccess(u);const token=crypto.randomBytes(32).toString('hex');sql.prepare('INSERT INTO sessions VALUES(?,?,?)').run(crypto.createHash('sha256').update(token).digest('hex'),u.id,Date.now()+30*86400000);audit(u,'统一账号登录','通过账号中心进入课堂');changed(u.id);return{token,cookie:cookie(token,process.env.SECURE_COOKIE==='1')}},
+ revoke:token=>sql.prepare('DELETE FROM sessions WHERE token=?').run(crypto.createHash('sha256').update(token).digest('hex'))
+});
 const server=http.createServer(storage.wrap(async(req,res)=>{
  res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','same-origin');res.setHeader('X-Frame-Options','DENY');
  try{
@@ -63,6 +70,7 @@ const server=http.createServer(storage.wrap(async(req,res)=>{
  if(req.method!=='GET'&&req.headers.origin&&new URL(req.headers.origin).host!==req.headers.host)throw error(403,'拒绝跨站请求');
  if(route==='/api/classes/public'&&req.method==='GET')return json(res,200,{classes:classes.all().map(c=>({id:c.id,name:c.name,entry:c.entry,enrollment:c.enrollment,stage:c.stage}))});
  if(route==='/api/health')return json(res,200,{ok:true,product:'hotel-hr-v2',storage:'SQLite',time:now()});
+ if(route==='/api/account-bridge'&&req.method==='POST')return json(res,200,accountBridge(req,await body(req)));
  if(route==='/api/login'&&req.method==='POST'){
    const ip=req.socket.remoteAddress,rate=rates.get(ip)||{n:0,at:Date.now()};if(Date.now()-rate.at>60000){rate.n=0;rate.at=Date.now();}if(++rate.n>40)throw error(429,'尝试过于频繁，请稍后重试');rates.set(ip,rate);
    const b=await body(req);const teacher=b.role==='teacher',id=teacher?'teacher':String(b.id||'').trim(),name=String(b.name||'').trim(),password=String(b.password||'');
@@ -122,7 +130,7 @@ const server=http.createServer(storage.wrap(async(req,res)=>{
  if(!files[route])throw error(404,'页面不存在');const filename=path.join(__dirname,'public',files[route]);res.writeHead(200,{'Content-Type':route.endsWith('.js')?'application/javascript; charset=utf-8':route.endsWith('.css')?'text/css; charset=utf-8':'text/html; charset=utf-8','Cache-Control':'no-cache'});fs.createReadStream(filename).pipe(res);
  }catch(e){if(!res.headersSent)json(res,e.status||500,{error:e.status?e.message:'服务器暂时无法处理请求，请保留页面稍后重试'});else res.end();if(!e.status)console.error(e);}
 }));
-const housekeeping=setInterval(()=>{if(storage.mode!=='feishu')sql.prepare('DELETE FROM sessions WHERE expires<?').run(Date.now());for(const [k,v] of rates)if(Date.now()-v.at>60000)rates.delete(k);},60000);housekeeping.unref();
+const housekeeping=setInterval(()=>{if(!storage.remote)sql.prepare('DELETE FROM sessions WHERE expires<?').run(Date.now());for(const [k,v] of rates)if(Date.now()-v.at>60000)rates.delete(k);},60000);housekeeping.unref();
 await storage.ready();
 server.listen(PORT,HOST,()=>{console.log('Hotel HR online ready: http://localhost:'+PORT);for(const arr of Object.values(os.networkInterfaces()))for(const a of arr)if(a.family==='IPv4'&&!a.internal)console.log('LAN URL: http://'+a.address+':'+PORT);console.log('Database: '+path.join(dataDir,'hotel.sqlite'));});
 function shutdown(){for(const c of clients)c.res.end();server.close(()=>{sql.close();process.exit(0);});setTimeout(()=>process.exit(0),3000).unref();}process.on('SIGTERM',shutdown);process.on('SIGINT',shutdown);

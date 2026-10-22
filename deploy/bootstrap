@@ -12,7 +12,7 @@ case "$STORAGE_BACKEND" in
     # WAL requires local shared memory. NFS uses rollback journals instead.
     export SQLITE_JOURNAL_MODE=DELETE
     ;;
-  feishu)
+  feishu|oss)
     export REQUIRE_NAS=0
     export DATA_DIR="${DATA_DIR:-/tmp/teaching-cache}"
     ;;

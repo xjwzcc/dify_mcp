@@ -25,7 +25,12 @@ async function start() {
   child.stderr.on('data', chunk => output += chunk);
   for (let i = 0; i < 80; i++) {
     if (child.exitCode !== null) throw new Error(output);
-    try { if ((await fetch(base + '/healthz')).ok) return; } catch {}
+    let response;
+    try { response = await fetch(base + '/healthz'); } catch {}
+    if (response) {
+      assert.equal(response.status, 200, 'gateway must not accept traffic before child services finish recovery');
+      return;
+    }
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   throw new Error('Startup timeout: ' + output);
@@ -47,8 +52,15 @@ async function call(route, { data: body, cookie, method, origin } = {}) {
 }
 test('merged gateway, role separation and durable classroom workflows', { timeout: 120000 }, async t => {
   if (backend === 'feishu') mock = await require('./helpers/feishu-mock.cjs').createMock();
+  if (backend === 'oss') {
+    mock = await require('./helpers/oss-mock.cjs').createMock();
+    const { initOss } = require('../scripts/init-oss.cjs');
+    await initOss({ empty: true }, { ...mock.env, TEACHER_PASSWORD: 'IntegrationTeacher2026!', CATERING_CLASS_CODE: 'TESTMENU', HOTEL_CLASS_CODE: 'TESTHOTEL' });
+    mock.fault.delayGets = 300;
+  }
   t.after(async () => { await stop(); await mock?.close(); fs.rmSync(data, { recursive: true, force: true }); });
   await start();
+  if (backend === 'oss') mock.fault.delayGets = 0;
   let ct, cs, cb, ht, hs;
   await t.test('portal, role entries, assets, iframe and route isolation', async () => {
     assert.match((await call('/')).body, /吴山苑/);
@@ -116,7 +128,7 @@ test('merged gateway, role separation and durable classroom workflows', { timeou
     assert.match(Buffer.from((await reader.read()).value).toString(), /assignments/);
     await reader.cancel();
   });
-  if (backend === 'feishu') await t.test('ten classes and ten concurrent student saves with checkpoint recovery', async () => {
+  if (backend !== 'nas') await t.test('ten classes and ten concurrent student saves with checkpoint recovery', async () => {
     for (let i = 1; i < 10; i++) {
       const c = { id: undefined, name: '试点班' + i, code: 'PILOTCLASS', stage: '实训',
         entry: true, enrollment: true, write: true, submit: true, score: true,
@@ -137,16 +149,16 @@ test('merged gateway, role separation and durable classroom workflows', { timeou
       } });
     }));
     for (const result of saved) assert.equal(result.status, 200);
-    assert.ok(mock.stats.heads > 25, 'checkpoint interval crossed');
+    assert.ok((backend === 'oss' ? mock.stats.creates : mock.stats.heads) > 25, 'checkpoint interval crossed');
   });
   await stop();
-  if (backend === 'feishu') await t.test('offline export retains both databases for the NAS backend', async () => {
+  if (backend !== 'nas') await t.test('offline export retains both databases for the NAS backend', async () => {
     const exportDir = path.join(data, 'nas-export');
-    const { exportFeishu } = require('../scripts/export-feishu.cjs');
+    const { exportRemote } = require('../scripts/export-feishu.cjs');
     const env = { ...mock.env, TEACHER_PASSWORD: 'IntegrationTeacher2026!', CATERING_CLASS_CODE: 'TESTMENU', HOTEL_CLASS_CODE: 'TESTHOTEL' };
-    const heads = mock.stats.heads;
-    await exportFeishu(exportDir, env);
-    assert.equal(mock.stats.heads, heads, 'export must never write to Feishu');
+    const heads = backend === 'oss' ? mock.stats.creates : mock.stats.heads;
+    await exportRemote(exportDir, env);
+    assert.equal(backend === 'oss' ? mock.stats.creates : mock.stats.heads, heads, 'export must never write to remote storage');
     for (const [namespace, file, student] of [['catering', 'emenu.sqlite', 'S001'], ['hotel', 'hotel.sqlite', 'PILOT9']]) {
       const db = new DatabaseSync(path.join(exportDir, namespace, file));
       assert.equal(db.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
@@ -154,7 +166,7 @@ test('merged gateway, role separation and durable classroom workflows', { timeou
       db.close();
     }
     assert.ok(fs.existsSync(path.join(exportDir, 'EXPORT_COMPLETE')));
-    await assert.rejects(exportFeishu(exportDir, env), /EEXIST/);
+    await assert.rejects(exportRemote(exportDir, env), /EEXIST/);
   });
   if (backend === 'nas') for (const name of ['catering/emenu.sqlite', 'hotel/hotel.sqlite']) {
     const db = new DatabaseSync(path.join(data, name));
@@ -170,8 +182,8 @@ test('merged gateway, role separation and durable classroom workflows', { timeou
     assert.equal(snapshot.submissions[0].score, 90);
     const hotel = (await call('/hotel/api/session', { cookie: hs.cookie })).body;
     assert.equal(hotel.student.state.employees[0].base, 5123);
-    assert.equal((await call('/hotel/api/teacher', { cookie: ht.cookie })).body.students.length, backend === 'feishu' ? 11 : 1);
-    if (backend === 'feishu') for (let i = 0; i < 10; i++) {
+    assert.equal((await call('/hotel/api/teacher', { cookie: ht.cookie })).body.students.length, backend !== 'nas' ? 11 : 1);
+    if (backend !== 'nas') for (let i = 0; i < 10; i++) {
       const record = await call('/hotel/api/teacher/student?id=PILOT' + i, { cookie: ht.cookie });
       assert.equal(record.body.student.state.employees[0].base, 6000 + i);
     }

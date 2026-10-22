@@ -1,6 +1,7 @@
 'use strict';
 const { DatabaseSync } = require('node:sqlite');
 const { FeishuJournal } = require('./feishu.cjs');
+const { OssJournal } = require('./oss.cjs');
 const quote = name => '"' + name.replaceAll('"', '""') + '"';
 function snapshot(db) {
   const tables = db.prepare("SELECT name,sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all();
@@ -32,8 +33,8 @@ function restoreSnapshot(db, tables) {
 }
 async function openDatabase(namespace, filename, env = process.env) {
   const mode = env.STORAGE_BACKEND || 'nas';
-  if (!['nas', 'feishu'].includes(mode)) throw Error('Invalid STORAGE_BACKEND');
-  const journal = mode === 'feishu' ? new FeishuJournal(namespace, env) : null;
+  if (!['nas', 'feishu', 'oss'].includes(mode)) throw Error('Invalid STORAGE_BACKEND');
+  const journal = mode === 'feishu' ? new FeishuJournal(namespace, env) : mode === 'oss' ? new OssJournal(namespace, env) : null;
   const db = new DatabaseSync(journal ? ':memory:' : filename);
   let poisoned = false, queue = Promise.resolve(), pending = 0, hooks = null, schema;
   if (journal) {
@@ -46,15 +47,15 @@ async function openDatabase(namespace, filename, env = process.env) {
     } catch (error) { db.close(); throw error; }
   }
   const storage = {
-    db, mode,
+    db, mode, remote: journal !== null,
     get busy() { return hooks !== null; },
     get healthy() { return !poisoned; },
     afterCommit(fn) { if (hooks) hooks.push(fn); else fn(); },
     async ready() {
       if (!journal) return;
       const current = db.prepare("SELECT name,sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all();
-      if (!journal.head.id) await journal.append('snapshot', snapshot(db));
-      else if (JSON.stringify(schema) !== JSON.stringify(current)) throw Error('Feishu schema migration requires an explicit offline migration');
+      if (!journal.head.id || (mode === 'oss' && schema.length === 0)) await journal.append('snapshot', snapshot(db));
+      else if (JSON.stringify(schema) !== JSON.stringify(current)) throw Error('Remote storage schema migration requires an explicit offline migration');
     },
     wrap(handler) {
       if (!journal) return handler;

@@ -1,0 +1,21 @@
+{
+  "Version": "1",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["oss:GetBucketVersioning", "oss:GetBucketAcl"],
+      "Resource": ["acs:oss:*:*:forcc-hangzhou"]
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["oss:ListObjects"],
+      "Resource": ["acs:oss:*:*:forcc-hangzhou"],
+      "Condition": {"StringLike": {"oss:Prefix": ["teaching/v1/*"]}}
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["oss:GetObject", "oss:PutObject"],
+      "Resource": ["acs:oss:*:*:forcc-hangzhou/teaching/v1/*"]
+    }
+  ]
+}

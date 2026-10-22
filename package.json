@@ -5,6 +5,7 @@
   "engines": { "node": ">=24" },
   "scripts": {
     "start": "node server.cjs",
+    "dev:fc": "node scripts/dev-fc-proxy.cjs",
     "test:integration": "node --test tests/integration.test.cjs"
   }
 }

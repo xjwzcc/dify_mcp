@@ -7,8 +7,9 @@ const { spawn } = require('node:child_process');
 
 const port = Number(process.env.PORT || 9000);
 const backend = process.env.STORAGE_BACKEND || 'nas';
-if (!['nas', 'feishu'].includes(backend)) throw Error('Invalid STORAGE_BACKEND');
-const dataDir = path.resolve(process.env.DATA_DIR || (backend === 'feishu' ? '/tmp/teaching-cache' : path.join(__dirname, 'data')));
+if (!['nas', 'feishu', 'oss'].includes(backend)) throw Error('Invalid STORAGE_BACKEND');
+const remoteStorage = backend !== 'nas';
+const dataDir = path.resolve(process.env.DATA_DIR || (remoteStorage ? '/tmp/teaching-cache' : path.join(__dirname, 'data')));
 const production = process.env.NODE_ENV === 'production';
 if (backend === 'nas' && production && (!process.env.DATA_DIR || dataDir.startsWith('/tmp/') || dataDir.startsWith('/code/'))) {
   throw new Error('Production requires DATA_DIR on persistent storage, e.g. /mnt/teaching/data');
@@ -22,10 +23,10 @@ if (backend === 'nas' && production && process.env.REQUIRE_NAS === '1') {
 }
 fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
 const configFile = path.join(dataDir, 'bootstrap.json');
-if (backend === 'feishu') {
+if (remoteStorage) {
   for (const key of ['TEACHER_PASSWORD', 'CATERING_CLASS_CODE', 'HOTEL_CLASS_CODE'])
     if (!process.env[key] || process.env[key].length < 8) throw Error(key + ' must be set to a stable value of at least 8 characters');
-  if (process.env.FEISHU_CATERING_TABLE_ID === process.env.FEISHU_HOTEL_TABLE_ID)
+  if (backend === 'feishu' && process.env.FEISHU_CATERING_TABLE_ID === process.env.FEISHU_HOTEL_TABLE_ID)
     throw Error('The two applications require separate Feishu tables');
 } else if (!fs.existsSync(configFile)) {
   fs.writeFileSync(configFile, JSON.stringify({
@@ -34,15 +35,18 @@ if (backend === 'feishu') {
     hotelCode: process.env.HOTEL_CLASS_CODE || crypto.randomBytes(6).toString('base64url')
   }, null, 2), { flag: 'wx', mode: 0o600 });
 }
-const config = backend === 'feishu' ? {
+const config = remoteStorage ? {
   teacherPassword: process.env.TEACHER_PASSWORD,
   cateringCode: process.env.CATERING_CLASS_CODE,
   hotelCode: process.env.HOTEL_CLASS_CODE
 } : JSON.parse(fs.readFileSync(configFile, 'utf8'));
+const accountEnabled = backend !== 'feishu';
+const bridgeSecret = crypto.randomBytes(32).toString('hex');
 const services = [
   { name: 'catering', port: Number(process.env.CATERING_PORT || 9101), code: config.cateringCode },
   { name: 'hotel', port: Number(process.env.HOTEL_PORT || 9102), code: config.hotelCode }
 ];
+if (accountEnabled) services.push({ name: 'accounts', port: Number(process.env.ACCOUNTS_PORT || 9104) });
 const children = [];
 let stopping = false;
 function start(command, args, env) {
@@ -55,7 +59,8 @@ for (const service of services) {
   start(process.execPath, [path.join(__dirname, 'apps', service.name, 'server.cjs')], {
     PORT: String(service.port), HOST: '127.0.0.1',
     DATA_DIR: path.join(dataDir, service.name),
-    TEACHER_PASSWORD: config.teacherPassword, CLASS_CODE: service.code,
+    TEACHER_PASSWORD: config.teacherPassword, CLASS_CODE: service.code || '',
+    ACCOUNT_BRIDGE_SECRET: bridgeSecret, CATERING_PORT: String(services[0].port), HOTEL_PORT: String(services[1].port),
     SECURE_COOKIE: production ? '1' : (process.env.SECURE_COOKIE || '0')
   });
 }
@@ -89,6 +94,17 @@ function proxy(req, res, targetPort, targetPath) {
   res.on('close', () => upstream.destroy());
   req.pipe(upstream);
 }
+async function serviceHealth() {
+  const targets = services.map(service => `http://127.0.0.1:${service.port}/api/health`);
+  if (process.env.ENABLE_MCP === '1') targets.push(`http://127.0.0.1:${mcpPort}/`);
+  return Promise.all(targets.map(async target => {
+    try {
+      const response = await fetch(target, { signal: AbortSignal.timeout(2000) });
+      await response.body?.cancel();
+      return response.ok;
+    } catch { return false; }
+  }));
+}
 const server = http.createServer(async (req, res) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'same-origin');
@@ -96,18 +112,7 @@ const server = http.createServer(async (req, res) => {
   try { url = new URL(req.url, 'http://localhost'); }
   catch { return json(res, 400, { error: '无效地址' }); }
   if (url.pathname === '/healthz') {
-    const checks = await Promise.all(services.map(async service => {
-      try {
-        const response = await fetch(`http://127.0.0.1:${service.port}/api/health`, { signal: AbortSignal.timeout(2000) });
-        return response.ok;
-      } catch { return false; }
-    }));
-    if (process.env.ENABLE_MCP === '1') {
-      try {
-        const response = await fetch(`http://127.0.0.1:${mcpPort}/`, { signal: AbortSignal.timeout(2000) });
-        checks.push(response.ok);
-      } catch { checks.push(false); }
-    }
+    const checks = await serviceHealth();
     return json(res, checks.every(Boolean) ? 200 : 503, { ok: checks.every(Boolean), storage: backend, services: checks });
   }
   if (url.pathname === '/' && ['GET', 'HEAD'].includes(req.method)) {
@@ -120,6 +125,7 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(308, { Location: prefix + '/' + url.search }); return res.end();
     }
     if (!url.pathname.startsWith(prefix + '/')) continue;
+    if (url.pathname === prefix + '/api/account-bridge') return json(res, 404, { error: '接口不存在' });
     if (url.pathname === prefix + '/api/login') {
       // Only trust FC's injected client address in the FC deployment.
       const ip = process.env.FC_INSTANCE_ID ? req.headers['x-fc-client-ip'] || req.socket.remoteAddress : req.socket.remoteAddress;
@@ -138,7 +144,21 @@ const server = http.createServer(async (req, res) => {
   json(res, 404, { error: '页面不存在' });
 });
 server.on('error', error => { console.error(error.message); shutdown(1); });
-server.listen(port, process.env.HOST || '0.0.0.0', () => console.log(`Teaching portal ready: http://localhost:${port}`));
+// FC considers the runtime initialized once this port listens. Keep initialization
+// active until remote recovery and every child service are ready.
+(async () => {
+  const deadline = Date.now() + 90000;
+  while (!stopping) {
+    const checks = await serviceHealth();
+    if (stopping) return;
+    if (checks.every(Boolean)) {
+      server.listen(port, process.env.HOST || '0.0.0.0', () => console.log(`Teaching portal ready: http://localhost:${port}`));
+      return;
+    }
+    if (Date.now() >= deadline) throw Error('Child services did not become ready during startup');
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+})().catch(error => { console.error(error.message); shutdown(1); });
 function shutdown(code = 0) {
   if (stopping) return;
   stopping = true;
