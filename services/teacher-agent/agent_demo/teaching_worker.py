@@ -51,9 +51,23 @@ def run(service, stop=None):
         with ThreadPoolExecutor(max_workers=service.s.max_active) as pool:
             list(pool.map(step, ids))
 
-    dispatcher = Worker(service)
+    allocation_pool = ThreadPoolExecutor(max_workers=service.s.max_active)
+    allocating = set()
+
+    def dispatch():
+        for future in list(allocating):
+            if future.done():
+                allocating.remove(future)
+                future.result()
+        while len(allocating) < service.s.max_active:
+            worker = Worker(service)
+            claimed = worker.claim()
+            if not claimed:
+                break
+            allocating.add(allocation_pool.submit(worker.start, *claimed))
+
     threads = [threading.Thread(target=loop, args=(action, delay), daemon=True)
-               for action, delay in [(authorize, 0.5), (reconcile, 1), (dispatcher.dispatch, 0.5)]]
+               for action, delay in [(authorize, 0.5), (reconcile, 1), (dispatch, 0.5)]]
     for thread in threads:
         thread.start()
     try:
@@ -64,3 +78,4 @@ def run(service, stop=None):
         stop.set()
         for thread in threads:
             thread.join(timeout=5)
+        allocation_pool.shutdown(wait=True)

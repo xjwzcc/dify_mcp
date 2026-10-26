@@ -148,8 +148,9 @@ class TeachingService(Service):
             return False
         occupied = select(attempts).join(executions, attempts.c.execution_id == executions.c.id).where(attempts.c.cleaned == 0)
         total = conn.execute(select(func.count()).select_from(occupied.subquery())).scalar()
-        owned = conn.execute(occupied.where(executions.c.tenant == ex["tenant"]).limit(1)).first()
-        return total < self.s.max_active and not owned
+        owned = conn.execute(select(func.count()).select_from(
+            occupied.where(executions.c.tenant == ex["tenant"]).subquery())).scalar()
+        return total < self.s.max_active and owned < self.s.max_teacher_active
 
     def assert_authorization(self, conn, ex):
         scope = row(conn, scope_table, scope_table.c.execution_id == ex["id"])

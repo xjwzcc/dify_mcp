@@ -178,3 +178,78 @@ def test_authorization_renewal_does_not_wait_for_allocation(teaching, backend, m
         stop.set()
         runner.join(5)
     assert not runner.is_alive()
+
+
+def test_simultaneous_claims_respect_four_slots_and_unclean_attempts(teaching,backend):
+    from concurrent.futures import ThreadPoolExecutor
+    teaching.s.max_active=4
+    for index in range(8):
+        submit(teaching,who(teaching,'t'+str(index)),str(index))
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        claimed=list(pool.map(lambda _:Worker(teaching,backend).claim(),range(8)))
+    active=[value[0] for value in claimed if value]
+    assert len(active)==4 and len({a['id'] for a in active})==4
+    first=active[0]
+    with teaching.db.tx() as conn:
+        ex=row(conn,executions,executions.c.id==first['execution_id'])
+    teaching.cancel(ex['tenant'],ex['id'])
+    assert Worker(teaching,backend).claim() is None
+    with teaching.db.tx() as conn:
+        conn.execute(update(attempts).where(attempts.c.id==first['id']).values(poll_until=0))
+    Worker(teaching,backend).cleanup(first['id'])
+    assert Worker(teaching,backend).claim() is not None
+
+
+def test_sessions_parallel_but_turns_ordered_and_checkpoint_restored(teaching,backend):
+    import base64
+    teaching.s.max_active=4;teaching.s.max_teacher_active=2
+    principal=who(teaching)
+    sid,a=submit(teaching,request_id='first',context={'student_id':'S1'})
+    _,followup=submit(teaching,request_id='followup',sid=sid,context={'student_id':'S2'})
+    other_sid,b=submit(teaching,request_id='other')
+    worker=Worker(teaching,backend)
+    first,t1=worker.claim();second,t2=worker.claim()
+    assert [first['execution_id'],second['execution_id']]==[a,b]
+    worker.start(first,t1);worker.start(second,t2)
+    assert worker.claim() is None  # Same session cannot overtake its first turn.
+    worker.finish(first['id'],{'ok':True,'answer':'本会话代号蓝帆',
+        'files':{'outputs/note.txt':base64.b64encode(b'blue-sail').decode()}})
+    worker.cleanup(first['id'])
+    third,t3=worker.claim()
+    assert third['execution_id']==followup and third['id']!=first['id']
+    worker.start(third,t3)
+    _,files=backend.specs[third['id']]
+    assert files['outputs/note.txt']==b'blue-sail'
+    assert '蓝帆' in files['context/briefing.json'].decode()
+    assert json.loads(files['context/teaching.json'])['selection']=={'student_id':'S2'}
+    assert 'outputs/note.txt' not in backend.specs[second['id']][1]
+    teaching.cancel(principal['tenant'],followup)
+    worker.cleanup(third['id'])
+    assert second['id'] in backend.boxes
+    with teaching.db.tx() as conn:
+        assert row(conn,executions,executions.c.id==b)['state']=='RUNNING'
+        assert row(conn,sessions,sessions.c.id==other_sid)['revision']==0
+
+
+def test_slow_allocation_does_not_block_another_teacher(teaching,backend,monkeypatch):
+    import threading
+    from agent_demo import teaching_worker
+    _,first=submit(teaching,request_id='first')
+    _,second=submit(teaching,who(teaching,'t2'),'second')
+    blocked,release,started,stop=(threading.Event() for _ in range(4))
+    def create(attempt):
+        if attempt['execution_id']==first:
+            blocked.set();assert release.wait(8)
+        else:
+            started.set()
+        backend.boxes[attempt['id']]=None
+        return attempt['id']
+    monkeypatch.setattr(backend,'create',create)
+    monkeypatch.setattr(teaching_worker,'Worker',lambda s:Worker(s,backend))
+    thread=threading.Thread(target=teaching_worker.run,args=(teaching,stop));thread.start()
+    try:
+        assert blocked.wait(3)
+        assert started.wait(3),'Second teacher was blocked by the first sandbox allocation'
+    finally:
+        release.set();stop.set();thread.join(8)
+    assert not thread.is_alive()

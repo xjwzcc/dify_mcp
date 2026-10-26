@@ -48,10 +48,11 @@ class Worker:
                     continue
                 aid, token = uid(), secrets.token_urlsafe(32)
                 number = ex["attempt_no"] + 1
+                preparing_seconds = 30 if self.s.provider == 'fc-internal' else 180
                 attempt = dict(id=aid, execution_id=ex["id"], number=number, owner=self.owner,
                     token_hash=hashlib.sha256(token.encode()).hexdigest(), state="PREPARING",
-                    lease_until=now + 180, deadline=now + self.s.attempt_seconds + 180,
-                    poll_until=now + 180, basis_revision=session["revision"],
+                    lease_until=now + preparing_seconds, deadline=now + self.s.attempt_seconds + preparing_seconds,
+                    poll_until=now + preparing_seconds, basis_revision=session["revision"],
                     config_digest=self.s.fingerprint(), sandbox_id=None, cleaned=0,
                     request_count=0, event_bytes=0, created=now)
                 conn.execute(insert(attempts).values(**attempt))
@@ -79,6 +80,10 @@ class Worker:
                 if current["state"] not in ACTIVE:
                     raise PermissionError("Execution cancelled during allocation")
                 self.service.assert_authorization(conn, ex)
+                if self.s.provider == 'fc-internal':
+                    # Execution receives its own budget after preparation, not both budgets.
+                    conn.execute(update(attempts).where(attempts.c.id == attempt["id"]).values(
+                        deadline=time.time() + self.s.attempt_seconds))
             spec = {"model": self.s.model, "gateway": self.s.gateway_url, "token": token,
                     "reasoning_effort": self.s.reasoning_effort,
                     "sandbox_mode": self.s.sandbox_mode, "prompt": prompt, "instructions": SYSTEM,
@@ -125,7 +130,8 @@ class Worker:
             if unresolved:
                 state, error = "WAITING_INPUT", "UNKNOWN_EXTERNAL_RESULT"
             elif error in {"AUTHORIZATION_REVOKED", "AUTHORIZATION_UNAVAILABLE", "AUTHORIZATION_EXPIRED", "PROVIDER_CONFIG_MISMATCH", "CONTEXT_SOURCE_LIMIT", "CONTEXT_INPUT_LIMIT",
-                           "MODEL_REQUEST_BUDGET", "FILE_LIMIT", "WORKSPACE_LIMIT", "CLIENT_DISCONNECTED", "INSTANCE_RESTARTED"}:
+                           "MODEL_REQUEST_BUDGET", "FILE_LIMIT", "WORKSPACE_LIMIT", "CLIENT_DISCONNECTED", "INSTANCE_RESTARTED",
+                           "SANDBOX_MEMORY_LIMIT", "SANDBOX_WORKSPACE_LIMIT", "SANDBOX_RESOURCE_GUARD_FAILED"}:
                 state = "WAITING_INPUT"
             elif a["number"] >= self.s.max_attempts:
                 state = "FAILED"

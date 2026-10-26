@@ -223,8 +223,10 @@ def create_app(settings=None, service=None):
             if runtime:
                 runtime.acquire(eid)
             try:
-                until = time.monotonic() + (settings.attempt_seconds + 60 if runtime else 50)
-                while time.monotonic() < until and not await request.is_disconnected():
+                until = time.monotonic() + 50
+                # Queue time must not consume the execution's time budget. Internal
+                # runs have their own process deadline and live authorization checks.
+                while (runtime or time.monotonic() < until) and not await request.is_disconnected():
                     revision = getattr(service.db, 'revision', 0)
                     ex, batch = await asyncio.to_thread(fetch, cursor)
                     for event in batch:

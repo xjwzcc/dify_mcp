@@ -54,10 +54,13 @@ def test_internal_boundary_has_no_host_mount_or_network(monkeypatch,tmp_path):
     assert args[-3:]==['--','python3','/opt/runner/main.py']
 
 
-def test_internal_config_requires_durable_single_writer():
-    with pytest.raises(ValueError,match='one active'):
+def test_internal_config_requires_durable_bounded_concurrency():
+    with pytest.raises(ValueError,match='durable fc-oss'):
         Settings(provider='fc-internal').validate()
-    Settings(provider='fc-internal',blob_backend='fc-oss',max_active=1).validate()
+    for count in [1, 4]:
+        Settings(provider='fc-internal',blob_backend='fc-oss',max_active=count).validate()
+    with pytest.raises(ValueError,match='1 to 4'):
+        Settings(provider='fc-internal',blob_backend='fc-oss',max_active=5).validate()
 
 
 def test_result_symlink_does_not_escape(tmp_path):
@@ -212,3 +215,77 @@ def test_fc_gateway_streams_without_per_delta_remote_writes_and_final_is_durable
     restored=FcDatabase(Settings(data_dir=tmp_path/'restored'),remote)
     with restored.tx() as conn:
         assert conn.execute(select(executions.c.state).where(executions.c.id==eid)).scalar()=='COMMITTED'
+
+
+def test_concurrent_workspaces_use_distinct_uids_and_cleanup_independently(monkeypatch,tmp_path):
+    import threading
+    monkeypatch.setattr(internal_sandbox,'ROOT',tmp_path)
+    monkeypatch.setattr(internal_sandbox.os,'chown',lambda *args:None)
+    provider=object.__new__(internal_sandbox.InternalProvider)
+    provider.boxes={};provider.lock=threading.RLock()
+    # Same prefix deliberately collides with the original UID hash.
+    ids=['abcdef'+c*26 for c in '1234']
+    for aid in ids:
+        provider.create({'id':aid})
+        (tmp_path/aid/'private.txt').write_text(aid)
+    assert len({box['uid'] for box in provider.boxes.values()})==4
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        list(pool.map(lambda _:provider.destroy({'id':ids[0]}),range(2)))
+    assert len(provider.boxes)==3
+    for aid in ids[1:]:
+        assert (tmp_path/aid/'private.txt').read_text()==aid
+        provider.destroy({'id':aid})
+    assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize('usage,reason',[
+    ((internal_sandbox.MEMORY_BYTES+1,0),'SANDBOX_MEMORY_LIMIT'),
+    ((0,internal_sandbox.WORKSPACE_BYTES+1),'SANDBOX_WORKSPACE_LIMIT')])
+def test_resource_guard_kills_only_offending_sandbox(monkeypatch,usage,reason):
+    from unittest.mock import Mock
+    provider=object.__new__(internal_sandbox.InternalProvider)
+    box={'guard_stop':Mock(),'process':Mock(pid=123),'failure':None}
+    box['guard_stop'].wait.return_value=False
+    box['process'].poll.return_value=None
+    monkeypatch.setattr(provider,'usage',lambda b:usage)
+    stopped=[];monkeypatch.setattr(provider,'stop_process',lambda b:stopped.append(b))
+    provider.guard(box)
+    assert stopped==[box] and box['failure']==reason
+
+
+def test_host_timeout_does_not_include_preparation_budget(monkeypatch,tmp_path):
+    import threading
+    from unittest.mock import Mock
+    provider=object.__new__(internal_sandbox.InternalProvider)
+    provider.boxes={};provider.lock=threading.RLock()
+    monkeypatch.setattr(internal_sandbox,'ROOT',tmp_path)
+    monkeypatch.setattr(internal_sandbox.os,'chown',lambda *args:None)
+    monkeypatch.setattr(internal_sandbox,'command',lambda *a,**kw:['fake-bwrap'])
+    monkeypatch.setattr(internal_sandbox,'Proxy',lambda *a:Mock())
+    monkeypatch.setattr(internal_sandbox.subprocess,'Popen',lambda *a,**kw:Mock())
+    monkeypatch.setattr(internal_sandbox.threading,'Thread',lambda *a,**kw:Mock())
+    timers=[]
+    def timer(seconds,*args,**kw):
+        timers.append(seconds);return Mock()
+    monkeypatch.setattr(internal_sandbox.threading,'Timer',timer)
+    aid='b'*32;provider.create({'id':aid,'deadline':9999999999})
+    (tmp_path/(aid+'.sock')).touch()
+    provider.start(aid,{'seconds':180,'token':'test'}, {})
+    assert timers==[185]
+
+
+def test_parallel_fc_final_commits_survive_recovery(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    remote=Remote();db=FcDatabase(Settings(data_dir=tmp_path/'live'),remote);db.initialize()
+    def commit(index):
+        with db.tx() as conn:
+            conn.execute(insert(sessions).values(id=str(index),tenant='teacher-'+str(index),revision=1,
+                checkpoint={'outputs/result.txt':{'ref':str(index)}},created=index))
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        list(pool.map(commit,range(4)))
+    restored=FcDatabase(Settings(data_dir=tmp_path/'restored'),remote)
+    with restored.tx() as conn:
+        rows=list(conn.execute(select(sessions)).mappings())
+    assert len(rows)==4
+    assert {r['checkpoint']['outputs/result.txt']['ref'] for r in rows}=={'0','1','2','3'}

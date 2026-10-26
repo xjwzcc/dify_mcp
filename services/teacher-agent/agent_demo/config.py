@@ -51,6 +51,7 @@ class Settings:
     teaching_verify_key: str = ""
     teaching_tool_key: str = ""
     max_active: int = 4
+    max_teacher_active: int = 1
     max_teacher_pending: int = 3
     oss_bucket: str = ""
     oss_endpoint: str = ""
@@ -96,6 +97,7 @@ class Settings:
             teaching_verify_key=os.getenv("TEACHING_VERIFY_KEY", ""),
             teaching_tool_key=os.getenv("TEACHING_TOOL_SIGNING_KEY", ""),
             max_active=int(os.getenv("MAX_ACTIVE_EXECUTIONS", "4")),
+            max_teacher_active=int(os.getenv("MAX_TEACHER_ACTIVE", "1")),
             max_teacher_pending=int(os.getenv("MAX_TEACHER_PENDING", "3")),
             oss_bucket=os.getenv("AGENT_OSS_BUCKET", ""),
             oss_endpoint=os.getenv("AGENT_OSS_ENDPOINT", ""),
@@ -118,8 +120,8 @@ class Settings:
             raise ValueError("LEASE_SECONDS must be between 30 and 300")
         if self.blob_backend not in {"local", "s3", "oss", "fc-oss"}:
             raise ValueError("Unsupported blob backend")
-        if self.provider == 'fc-internal' and (self.blob_backend != 'fc-oss' or self.max_active != 1):
-            raise ValueError('FC internal sandbox requires durable fc-oss and one active attempt')
+        if self.provider == 'fc-internal' and (self.blob_backend != 'fc-oss' or not 1 <= self.max_active <= 4):
+            raise ValueError('FC internal sandbox requires durable fc-oss and 1 to 4 active attempts')
         if self.blob_backend == "oss" and (not self.oss_bucket or not self.oss_endpoint.startswith("https://") or not self.oss_prefix.strip("/")):
             raise ValueError("OSS requires bucket, HTTPS endpoint and a dedicated nonempty prefix")
         if self.teaching_mode:
@@ -129,7 +131,7 @@ class Settings:
                 raise ValueError("TEACHING_BASE_URL must be an HTTPS origin (localhost HTTP allowed)")
             if not self.teaching_deployment or min(len(self.teaching_verify_key), len(self.teaching_tool_key)) < 32:
                 raise ValueError("Teaching deployment and two strong service signing keys required")
-            if not 1 <= self.max_active <= 32 or not 1 <= self.max_teacher_pending <= 20:
+            if not 1 <= self.max_active <= 32 or not 1 <= self.max_teacher_pending <= 20 or not 1 <= self.max_teacher_active <= self.max_active:
                 raise ValueError("Invalid teaching capacity limits")
             if self.production and self.provider != 'fc-internal' and (not self.database_url.startswith("mysql+pymysql://") or self.blob_backend != "oss" or self.provider != "fc"):
                 raise ValueError("Production teaching requires independent MySQL, native OSS and FC sandbox")

@@ -120,7 +120,8 @@ module.exports = function createChatGateway({ services, bridgeSecret, env = proc
       const headers={'X-Teacher-Assertion':assertion(who,req.method,upstreamPath,body,env),Accept:stream?'text/event-stream':'application/json'};
       if (req.method==='POST') headers['Content-Type']=suffix.endsWith('/attachments')?'application/octet-stream':'application/json';
       const response=await fetch(new URL(upstreamPath,target),{method:req.method,headers,body:req.method==='POST'?body:undefined,
-        signal:AbortSignal.any([controller.signal,AbortSignal.timeout(stream?(env.TEACHER_AGENT_MODE==='fc-internal'?300000:60000):45000)]),redirect:'error'});
+        signal:stream && env.TEACHER_AGENT_MODE==='fc-internal' ? controller.signal :
+          AbortSignal.any([controller.signal,AbortSignal.timeout(stream?60000:45000)]),redirect:'error'});
       const out={'Content-Type':response.headers.get('content-type') || 'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'};
       if (response.headers.get('content-disposition')) out['Content-Disposition']=response.headers.get('content-disposition');
       if (stream) out['X-Accel-Buffering']='no';

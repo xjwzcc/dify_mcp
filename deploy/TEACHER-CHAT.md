@@ -5,10 +5,11 @@
 ## 运行边界
 
 - Node 课堂网关、Agent Python 控制服务、DeepSeek Bridge 和 OSS 持久化代理均为可信进程。Python 使用独立工作目录与打包依赖，避免课堂 MCP 的同名包覆盖依赖。
-- 每次 attempt 创建 bubblewrap 沙箱：独立 user/mount/PID/network/IPC/UTS 命名空间，非 root 身份，清空环境变量、丢弃 capabilities、FC 预挂载的 64 MiB `/dev/shm` 内独立工作区。仅挂载系统运行库、固定执行程序和自己的工作目录。
+- 每次 attempt 创建 bubblewrap 沙箱：独立 user/mount/PID/network/IPC/UTS 命名空间，非 root 身份，清空环境变量、丢弃 capabilities，在 `/tmp/teacher-agent-sandboxes/<attempt>` 使用独立磁盘工作区。每个活跃沙箱使用不同宿主 UID，避免进程配额、资源采样相互混淆；仅挂载系统运行库、固定执行程序和自己的工作目录。
 - FC 实测不允许嵌套 procfs，因此使用合成 `/proc`，其中仅提供指向固定 Codex 程序的 `/proc/self/exe` 符号链接，满足 Rust 的路径查询。保留 PID 和网络隔离，不挂载宿主 procfs。Codex 使用外层沙箱执行配置 `danger-full-access`；此参数仅在通过启动预检的 bubblewrap 内使用，不存在宿主直接执行 fallback。
 - 沙箱只能通过该 attempt 的 Unix socket 访问固定的模型、事件、只读工具三个接口。代理固定注入当前 attempt 令牌，不接受任意目的地址。DeepSeek 密钥、OSS 密钥、教学签名密钥均不进入沙箱。
-- 全局一次只执行一个 attempt；每教师至多三个排队请求。进程/描述符/单文件/地址空间/CPU 有显式限制；FC 2 GB 是整个课堂与 Agent 共用的资源上限，不等于独立虚拟机的资源保障。
+- 默认全局最多四个 attempt 并行，每个教师在每门课程最多两个不同会话并行、至多三个排队请求。同一会话逐轮执行，未回收完成的沙箱继续占用名额。创建沙箱使用有界线程池，慢启动不会阻塞其他教师。FC 推荐 2 vCPU / 4 GiB / 512 MiB 磁盘，单实例 HTTP 并发度保持 100；最大实例数仍为 1，数据库持久化保持单写者。
+- 每个沙箱保留进程/描述符/单文件/地址空间/CPU 限制，独立宿主监测线程每 0.5 秒采样该 UID 的 RSS 与工作区文件体积，超过 512 MiB / 64 MiB 时终止本轮并等待教师处理。沙箱内 `/tmp` tmpfs 有独立 64 MiB 容量上限。采样保护不等同于独立 cgroup 硬配额；启动检查为课堂和控制服务保留内存/磁盘余量。
 
 ## FC 生命周期与数据
 
@@ -27,6 +28,8 @@ TEACHER_AGENT_MODE=fc-internal
 ENABLE_TEACHER_CHAT=1
 TEACHER_AGENT_MODEL=deepseek-flash
 TEACHER_AGENT_REASONING_EFFORT=low
+TEACHER_AGENT_MAX_ACTIVE=4
+TEACHER_AGENT_MAX_PER_TEACHER=2
 DEEPSEEK_API_KEY=<只在 FC 服务端配置，不提交源码>
 ```
 
@@ -38,8 +41,9 @@ DEEPSEEK_API_KEY=<只在 FC 服务端配置，不提交源码>
 - FC 默认推理强度为 `low`，可通过 `TEACHER_AGENT_REASONING_EFFORT=high` 恢复较高推理预算。模型仍为 `deepseek-flash`。
 - Markdown 使用本地打包的 Marked 与 DOMPurify，支持标题、列表、表格、引用、代码块与复制。原始 HTML 作为文本处理，禁止自动加载外部图片及执行脚本。流式渲染每 80 毫秒合并一次，长表格可横向滚动，桌面聊天框可展开。
 - 浏览器依赖固定在 package-lock.json；运行 `npm ci --ignore-scripts` 和 `npm run vendor:teacher-chat` 可重建 vendor 文件，版本、SHA256 和许可证一并保留。
-- 每轮使用独立沙箱，共享只读程序与系统运行库。成功、失败、取消后，由每秒执行一次的生命周期检查清理进程、socket、工作区和计时器。CPU/进程/文件限制保留；180 秒 attempt 截止时间另有 5 秒宽限的宿主进程终止计时器。控制进程重启后只清理专用根目录下合法 attempt 名称的残留，不跟随符号链接。
-- 在 2 GB 共用资源的当前配置下继续保持全局单执行，不保留闲置沙箱池。回收工作区不删除会话历史或 OSS 附件。大型计算仍可能触达整个 FC 的内存上限；这不是独立容器级内存配额。
+- 每轮使用独立沙箱，共享只读程序与系统运行库。成功、失败、取消后，生命周期循环处理完再等待 1 秒，清理进程、socket、工作区、监测线程和计时器。内部沙箱准备阶段预算 30 秒，执行阶段重新计算 180 秒截止时间，宿主在进程启动约 185 秒后独立强制终止。旧版错误地把 180 秒准备时间叠加进宿主计时器，本版已修正。控制进程重启后清理新旧专用根目录下合法 attempt 名称的残留，不跟随符号链接。
+- 不保留闲置沙箱池。回收工作区不删除会话历史或 OSS 附件；下一轮根据 session ID 恢复已提交工作区、用户历史、最近六条已提交回复，再注入本轮页面上下文和附件。不同会话的 checkpoint、令牌、工作区互不共享。
+- 内部 SSE 连接不再把排队时间算入固定 240/300 秒连接预算；客户端断开、授权失效或执行结束仍会关闭连接。运行时限由该 attempt 的独立计时器控制。
 
 ## 打包
 
@@ -96,7 +100,7 @@ git diff --check
 - 修复 DeepSeek 推理条目同时带明文与附加不透明字段时的工具后续调用：保留完整明文，移除其不支持的伴随字段；不透明历史缺少明文时继续拒绝。
 - FC 默认域名的 API 可用，浏览器直接访问 HTML 受到限制。现有页面入口仍使用仓库 README 的本地 `dev:fc` 代理；公网网页需要可用的自定义域名。
 
-## 本次优化发布（v8，2026-10-26）
+## 流式优化发布（v8，2026-10-26）
 
 - FC：cn-hangzhou / cc_dify_mcp，已发布并重新启用；`/healthz` 返回课堂四个服务与 Agent 均正常。
 - 部署包：`teacher-chat-internal-v8.zip`，183451781 bytes；SHA256 `7397439541286f4968d8f50c961615b05d1621b3777025d8fdc962100b22c9f9`。ZIP CRC、源码一致性、重复条目及密钥排除检查通过；线上 JS/CSS 与本地文件逐字节一致。
@@ -140,3 +144,32 @@ BRIDGE_DIR=/Users/bytedance/client_exp/dify_mcp/services/teacher-agent/bridge PA
 ```
 
 未运行全量测试；未覆盖长时间压力、多教师负载、所有移动端浏览器、真实 185 秒强制超时和极限内存耗尽。后台 OSS 写失败、最终提交等待、过期快照不能覆盖新状态、分片密钥脱敏和脚本注入已做针对性回归。
+
+## 并发执行发布（v9，2026-10-26）
+
+- 已部署到 cn-hangzhou / cc_dify_mcp。包 `teacher-chat-internal-v9.zip`，8752 个文件、183452941 bytes，SHA256 `c2022a94c8b94aa05aff78ac4cf0a777cb75d5f2cfa11eff5604a50d5c182424`；ZIP CRC、重复条目、运行时代码一致性和凭据排除检查通过。
+- 当前配置：2 vCPU / 4 GiB / 512 MiB 磁盘，HTTP 单实例并发 100，最大实例数 1；全局沙箱并行 4，每教师每课程并行 2。单实例约束用于 OSS 单写者，不代表仅能有一名教师在线。
+- 发布前发现云端启动命令已恢复为旧 uvicorn 入口，环境变量仅剩三项，执行角色为空，接口返回 412。已从本地私有部署配置恢复 `/bin/bash /code/deploy/bootstrap`、原有环境变量及原执行角色 `FCForccHangzhouOssRole`，并应用本版并发配置；未确认该配置变化的来源。
+- 真实验收使用两个已有教师账号，各自创建两个独立测试会话，观察到四个 execution 同时处于 RUNNING，均实际调用沙箱命令。取消其中一个后，其余三个正常 COMMITTED；各回复仅包含自己的测试代号。
+- 随后在第一个会话发起新一轮，在新沙箱实际读取上一轮的 `outputs/concurrency.txt`，内容与前轮代号一致。会话历史与已提交文件随 session 恢复，不依赖上一轮进程或内存。
+- 执行完成后实例终端检查：最近五次 attempt 均 `cleaned=1`，专用目录与 socket 残留均为 0；FC 内存取样 665616384 / 4294967296 bytes（约 635 MiB / 4 GiB，仅空闲取样，非峰值）。截图保留于本地忽略目录 `data/fc-agent-build/concurrency-cleanup.png`。
+- 完全销毁旧实例再启用，确认仅一个新实例运行；`/healthz` 四个课堂服务及 Agent 均正常。重新登录两个教师账号后，四个会话状态、后续轮次历史与生成文件下载内容全部从 OSS 恢复成功。
+
+本轮实际执行的针对性测试命令：
+
+```bash
+services/teacher-agent/.venv/bin/python -m pytest -q services/teacher-agent/tests/test_fc_internal.py services/teacher-agent/tests/test_teaching.py services/teacher-agent/tests/test_service.py services/teacher-agent/tests/test_api.py
+# 38 passed
+/private/tmp/node-v24.10.0-darwin-arm64/bin/node --check server.cjs
+/private/tmp/node-v24.10.0-darwin-arm64/bin/node --test tests/teacher-agent-gateway.test.cjs tests/teacher-agent-stream.test.cjs
+# 2 passed
+/private/tmp/node-v24.10.0-darwin-arm64/bin/node data/fc-agent-build/concurrency.cjs --login-only
+# 发布前因上述云端启动配置返回 412；恢复配置后下述完整验收通过
+/private/tmp/node-v24.10.0-darwin-arm64/bin/node data/fc-agent-build/concurrency.cjs
+# 4 同时运行，1 取消、3 成功，后续轮次读取前轮文件成功
+/private/tmp/node-v24.10.0-darwin-arm64/bin/node data/fc-agent-build/concurrency.cjs --recovery
+# 冷启动后历史、状态和文件内容恢复通过
+git diff --check
+```
+
+未运行全量测试；未覆盖长时间压力、大规模用户负载、所有浏览器、真实内存耗尽和持续 185 秒超时。内存/磁盘监测与超时计时器有针对性回归，但采样监测不是每个沙箱的 cgroup 硬隔离。本版仅支持单 FC 实例中的有界并发，横向多实例需要另行迁移持久化与调度设计。

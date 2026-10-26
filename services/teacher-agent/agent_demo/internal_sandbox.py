@@ -9,14 +9,17 @@ import subprocess
 import sys
 import threading
 import http.client
-import time
+import stat
 
 from .providers import encoded_spec
 from .storage import InputError
 
 BASE = Path(__file__).resolve().parents[1]
 RUNTIME = BASE / 'sandbox_runtime'
-ROOT = Path('/dev/shm/teacher-agent-sandboxes')
+ROOT = Path('/tmp/teacher-agent-sandboxes')
+LEGACY_ROOT = Path('/dev/shm/teacher-agent-sandboxes')
+MEMORY_BYTES = 512 * 1024 * 1024
+WORKSPACE_BYTES = 64 * 1024 * 1024
 _instances = {}
 
 
@@ -33,7 +36,7 @@ def command(directory, executable, *, uid=20001, socket_path=None):
         # Rust current_exe() requires this path. It is a fixed synthetic link,
         # never a bind of host procfs or a view of another process.
         '--dir', '/proc/self', '--symlink', '/opt/agent-bin/codex', '/proc/self/exe',
-        '--dev', '/dev', '--tmpfs', '/tmp', '--clearenv', '--setenv', 'LANG', 'C.UTF-8',
+        '--dev', '/dev', '--size', str(WORKSPACE_BYTES), '--tmpfs', '/tmp', '--clearenv', '--setenv', 'LANG', 'C.UTF-8',
         '--setenv', 'PATH', '/opt/agent-bin:'+str(Path(sys.executable).parent)+':/usr/bin:/bin',
         '--bind', str(directory), '/runs', '--chdir', '/runs']
     mounted = []
@@ -103,13 +106,15 @@ class InternalProvider:
                 return aid
             root = ROOT / aid
             root.mkdir(mode=0o700)
-            # One active execution globally; changing UID also separates stale descendants.
+            # Every live sandbox has a distinct host UID, including hash collisions.
             uid = 20000 + int(aid[:6],16) % 40000
-            # FC grants no CAP_SYS_ADMIN to its worker. Reuse its pre-mounted
-            # 64 MiB tmpfs; only this directory is visible inside the sandbox.
+            used = {box['uid'] for box in list(self.boxes.values())}
+            while uid in used:
+                uid = 20000 + (uid - 20000 + 1) % 40000
+            # Concurrent jobs must not share the 64 MiB /dev/shm workspace.
             os.chown(root,uid,uid)
             self.boxes[aid] = {'root':root, 'uid':uid, 'process':None, 'proxy':None,
-                               'deadline':attempt.get('deadline'), 'timer':None}
+                               'timer':None, 'guard_stop':threading.Event(), 'failure':None}
         return aid
 
     def start(self, aid, spec, files):
@@ -129,10 +134,52 @@ class InternalProvider:
             env={'PATH':'/usr/bin:/bin'}, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL, user=uid, group=uid, extra_groups=[], start_new_session=True)
         # Independent host-side wall-clock guard, even if the runner or OSS stalls.
-        seconds = max(0.1, (box['deadline'] or time.time()+spec['seconds']) - time.time())
-        box['timer'] = threading.Timer(seconds + 5, self.stop_process, args=(box,))
+        box['timer'] = threading.Timer(spec['seconds'] + 5, self.expire, args=(box, 'ATTEMPT_TIMEOUT'))
         box['timer'].daemon = True
         box['timer'].start()
+        box['guard'] = threading.Thread(target=self.guard, args=(box,), daemon=True)
+        box['guard'].start()
+
+    @staticmethod
+    def usage(box):
+        # Host-side sampling includes descendants after setsid/fork by their unique UID.
+        rss = 0
+        for process in Path('/proc').iterdir():
+            if not process.name.isdigit():
+                continue
+            try:
+                fields = dict(line.split(':', 1) for line in (process / 'status').read_text().splitlines() if ':' in line)
+                if int(fields['Uid'].split()[0]) == box['uid']:
+                    rss += int(fields.get('VmRSS', '0 kB').split()[0]) * 1024
+            except (FileNotFoundError, ProcessLookupError):
+                continue
+        size = 0
+        # Never follow workspace links or read model-created special files.
+        for directory, _, names in os.walk(box['root'], followlinks=False):
+            for name in names:
+                try:
+                    info = os.lstat(Path(directory) / name)
+                    if stat.S_ISREG(info.st_mode):
+                        size += info.st_size
+                except FileNotFoundError:
+                    pass
+        return rss, size
+
+    def guard(self, box):
+        # Independent of DB/OSS locks. These are sampled guards, not cgroup quotas.
+        while not box['guard_stop'].wait(0.5):
+            try:
+                memory, disk = self.usage(box)
+                if memory > MEMORY_BYTES or disk > WORKSPACE_BYTES:
+                    self.expire(box, 'SANDBOX_MEMORY_LIMIT' if memory > MEMORY_BYTES else 'SANDBOX_WORKSPACE_LIMIT')
+                    return
+            except Exception:
+                self.expire(box, 'SANDBOX_RESOURCE_GUARD_FAILED')
+                return
+
+    def expire(self, box, reason):
+        box['failure'] = reason
+        self.stop_process(box)
 
     @staticmethod
     def stop_process(box):
@@ -145,19 +192,24 @@ class InternalProvider:
     def recover_workspaces(self):
         # Called once, before accepting work, after a fresh control process starts.
         # bwrap --die-with-parent fences the previous control process's children.
-        for path in ROOT.iterdir():
-            name = path.name.removesuffix('.sock')
-            if len(name) != 32 or any(c not in '0123456789abcdef' for c in name):
+        for root in (ROOT, LEGACY_ROOT):
+            if not root.exists() or root.is_symlink():
                 continue
-            if path.is_symlink() or not path.is_dir():
-                path.unlink(missing_ok=True)
-            else:
-                shutil.rmtree(path)
+            for path in root.iterdir():
+                name = path.name.removesuffix('.sock')
+                if len(name) != 32 or any(c not in '0123456789abcdef' for c in name):
+                    continue
+                if path.is_symlink() or not path.is_dir():
+                    path.unlink(missing_ok=True)
+                else:
+                    shutil.rmtree(path)
 
     def inspect(self, aid):
         box = self.boxes.get(aid)
         if not box:
             raise InputError('INSTANCE_RESTARTED')
+        if box.get('failure'):
+            raise InputError(box['failure'])
         path = box['root'] / 'result.json'
         # Read the untrusted result without following symlinks out of its workspace.
         try:
@@ -167,7 +219,6 @@ class InternalProvider:
                 raise InputError('SANDBOX_EXIT_WITHOUT_RESULT')
             return None
         with os.fdopen(fd,'rb') as stream:
-            import stat
             if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
                 raise InputError('INVALID_RESULT')
             raw = stream.read(24_000_001)
@@ -180,6 +231,15 @@ class InternalProvider:
         box = self.boxes.get(aid)
         if not box:
             return
+        with box.setdefault('cleanup_lock', threading.Lock()):
+            if self.boxes.get(aid) is box:
+                self._destroy(aid, box)
+
+    def _destroy(self, aid, box):
+        if box.get('guard_stop'):
+            box['guard_stop'].set()
+        if box.get('guard'):
+            box['guard'].join(timeout=6)
         if box.get('timer'):
             box['timer'].cancel()
             if box['timer'] is not threading.current_thread():
@@ -193,10 +253,12 @@ class InternalProvider:
 
     def preflight(self):
         import tempfile
-        mounts = [line.split() for line in Path('/proc/mounts').read_text().splitlines()]
-        fs = os.statvfs(ROOT)
-        if not any(row[1:3] == ['/dev/shm', 'tmpfs'] for row in mounts) or not 0 < fs.f_blocks * fs.f_frsize <= 64 * 1024 * 1024:
-            raise RuntimeError('BOUNDED_SHM_UNAVAILABLE')
+        if shutil.disk_usage(ROOT).free < (self.s.max_active + 1) * WORKSPACE_BYTES:
+            raise RuntimeError('INSUFFICIENT_SANDBOX_DISK_CAPACITY')
+        limits = [Path('/sys/fs/cgroup/memory.max'), Path('/sys/fs/cgroup/memory/memory.limit_in_bytes')]
+        memory_limit = next((int(p.read_text()) for p in limits if p.exists() and p.read_text().strip().isdigit()), 0)
+        if memory_limit < (self.s.max_active + 2) * MEMORY_BYTES:
+            raise RuntimeError('INSUFFICIENT_FC_MEMORY_FOR_CONCURRENCY')
         with tempfile.TemporaryDirectory(prefix='preflight-',dir=ROOT) as work:
             directory=Path(work); os.chown(directory,20001,20001)
             source = ("import os,socket,pathlib; "
