@@ -62,6 +62,7 @@ const accountBridge=require('../../storage/account-bridge.cjs')({
  session:u=>{classes.requireAccess(u);const token=crypto.randomBytes(32).toString('hex');sql.prepare('INSERT INTO sessions VALUES(?,?,?)').run(crypto.createHash('sha256').update(token).digest('hex'),u.id,Date.now()+30*86400000);audit(u,'统一账号登录','通过账号中心进入课堂');changed(u.id);return{token,cookie:cookie(token,process.env.SECURE_COOKIE==='1')}},
  revoke:token=>sql.prepare('DELETE FROM sessions WHERE token=?').run(crypto.createHash('sha256').update(token).digest('hex'))
 });
+const agentBridge=require('../../agent/course-adapter.cjs')({db:sql,course:'hotel',evaluate});
 const server=http.createServer(storage.wrap(async(req,res)=>{
  res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','same-origin');res.setHeader('X-Frame-Options','DENY');
  try{
@@ -70,6 +71,7 @@ const server=http.createServer(storage.wrap(async(req,res)=>{
  if(req.method!=='GET'&&req.headers.origin&&new URL(req.headers.origin).host!==req.headers.host)throw error(403,'拒绝跨站请求');
  if(route==='/api/classes/public'&&req.method==='GET')return json(res,200,{classes:classes.all().map(c=>({id:c.id,name:c.name,entry:c.entry,enrollment:c.enrollment,stage:c.stage}))});
  if(route==='/api/health')return json(res,200,{ok:true,product:'hotel-hr-v2',storage:'SQLite',time:now()});
+ if(route==='/api/agent-bridge'&&req.method==='POST')return json(res,200,agentBridge(req,await body(req)));
  if(route==='/api/account-bridge'&&req.method==='POST')return json(res,200,accountBridge(req,await body(req)));
  if(route==='/api/login'&&req.method==='POST'){
    const ip=req.socket.remoteAddress,rate=rates.get(ip)||{n:0,at:Date.now()};if(Date.now()-rate.at>60000){rate.n=0;rate.at=Date.now();}if(++rate.n>40)throw error(429,'尝试过于频繁，请稍后重试');rates.set(ip,rate);

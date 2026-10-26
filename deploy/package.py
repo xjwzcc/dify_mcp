@@ -10,13 +10,13 @@ ROOT = Path(__file__).resolve().parents[1]
 NODE_ARCHIVE = "node-v24.10.0-linux-x64.tar.xz"
 
 
-def build(backup, node, checksums, output):
+def build(backup, node, checksums, output, agent_runtime=None):
     expected = dict((line.split()[1], line.split()[0]) for line in checksums.read_text().splitlines())
     if hashlib.sha256(node.read_bytes()).hexdigest() != expected[NODE_ARCHIVE]:
         raise ValueError("Node archive SHA256 mismatch")
     files = {}
     with zipfile.ZipFile(backup) as previous:
-        prefix = "cc_dify_mcp/"
+        prefix = "" if "uvicorn/__init__.py" in previous.namelist() else "cc_dify_mcp/"
         names = {name[len(prefix):] for name in previous.namelist() if name.startswith(prefix)}
         packages = {name.split("/")[0] for name in names if name.endswith(".dist-info/METADATA")}
         packages.update(name.split("/")[0] for name in names if name.count("/") == 1 and name.endswith("/__init__.py"))
@@ -36,6 +36,10 @@ def build(backup, node, checksums, output):
         files[source.relative_to(ROOT).as_posix()] = (source.read_bytes(), 0o644)
     for source in sorted((ROOT / "scripts").glob("*.cjs")):
         files[source.relative_to(ROOT).as_posix()] = (source.read_bytes(), 0o644)
+    for directory in ["agent", "shared/teacher-chat"]:
+        for source in sorted((ROOT / directory).rglob("*")):
+            if source.is_file() and source.suffix in {".cjs", ".js", ".css", ".json", ".txt"}:
+                files[source.relative_to(ROOT).as_posix()] = (source.read_bytes(), 0o644)
     for app in ["catering", "hotel", "accounts"]:
         app_root = ROOT / "apps" / app
         for source in sorted(app_root.glob("*.cjs")):
@@ -51,6 +55,22 @@ def build(backup, node, checksums, output):
     for required in ["uvicorn/__init__.py", "starlette/__init__.py", "mcp/__init__.py"]:
         if required not in files:
             raise ValueError("Original backup is missing required dependency: " + required)
+    if agent_runtime:
+        base = ROOT / 'services/teacher-agent'
+        for directory in ['agent_demo', 'config', 'sandbox_runtime', 'bridge']:
+            for source in sorted((base / directory).rglob('*')):
+                if not source.is_file() or any(x in {'__pycache__', '.git', 'test', 'tests'} or x.startswith('.') for x in source.relative_to(base).parts):
+                    continue
+                if source.suffix in {'.pyc', '.log'}:
+                    continue
+                files[source.relative_to(ROOT).as_posix()] = (source.read_bytes(), 0o644)
+        for directory in ['python', 'bin']:
+            for source in sorted((agent_runtime / directory).rglob('*')):
+                if source.is_file() and '__pycache__' not in source.parts and source.suffix != '.pyc':
+                    files['services/teacher-agent/' + source.relative_to(agent_runtime).as_posix()] = (source.read_bytes(), 0o755 if directory == 'bin' else 0o644)
+        for required in ['bin/codex', 'bin/bwrap', 'python/sqlalchemy/__init__.py', 'python/pydantic_core/__init__.py']:
+            if 'services/teacher-agent/'+required not in files:
+                raise ValueError('Agent runtime missing: '+required)
     output.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as result:
         for name, (content, mode) in sorted(files.items()):
@@ -67,4 +87,5 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     for option in ["backup", "node", "checksums", "output"]:
         parser.add_argument("--" + option, type=Path, required=True)
+    parser.add_argument('--agent-runtime', type=Path)
     build(**vars(parser.parse_args()))

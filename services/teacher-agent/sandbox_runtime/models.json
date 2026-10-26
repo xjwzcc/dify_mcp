@@ -1,0 +1,91 @@
+{
+  "models": [
+    {
+      "slug": "deepseek-flash",
+      "display_name": "deepseek-flash",
+      "description": "DeepSeek via signed Bridge",
+      "default_reasoning_level": "high",
+      "supported_reasoning_levels": [
+        {
+          "effort": "low",
+          "description": "low"
+        },
+        {
+          "effort": "high",
+          "description": "high"
+        },
+        {
+          "effort": "max",
+          "description": "max"
+        }
+      ],
+      "supports_reasoning_summaries": false,
+      "support_verbosity": false,
+      "default_verbosity": null,
+      "shell_type": "default",
+      "visibility": "list",
+      "supported_in_api": true,
+      "priority": 100,
+      "effective_context_window_percent": 90,
+      "truncation_policy": {
+        "mode": "tokens",
+        "limit": 10000
+      },
+      "supports_parallel_tool_calls": true,
+      "input_modalities": [
+        "text",
+        "image"
+      ],
+      "prefer_websockets": false,
+      "experimental_supported_tools": [],
+      "base_instructions": "You are an assistant executing tasks in an isolated workspace. Use tools to verify your work. Respect the user's requirements and host-provided tool permissions. Do not report external success without tool evidence.",
+      "context_window": 1048576,
+      "max_context_window": 1048576,
+      "use_responses_lite": false,
+      "apply_patch_tool_type": "freeform"
+    },
+    {
+      "slug": "deepseek-v4-pro",
+      "display_name": "deepseek-v4-pro",
+      "description": "DeepSeek via signed Bridge",
+      "default_reasoning_level": "high",
+      "supported_reasoning_levels": [
+        {
+          "effort": "low",
+          "description": "low"
+        },
+        {
+          "effort": "high",
+          "description": "high"
+        },
+        {
+          "effort": "max",
+          "description": "max"
+        }
+      ],
+      "supports_reasoning_summaries": false,
+      "support_verbosity": false,
+      "default_verbosity": null,
+      "shell_type": "default",
+      "visibility": "list",
+      "supported_in_api": true,
+      "priority": 99,
+      "effective_context_window_percent": 90,
+      "truncation_policy": {
+        "mode": "tokens",
+        "limit": 10000
+      },
+      "supports_parallel_tool_calls": true,
+      "input_modalities": [
+        "text"
+      ],
+      "prefer_websockets": false,
+      "experimental_supported_tools": [],
+      "base_instructions": "You are an assistant executing tasks in an isolated workspace. Use tools to verify your work. Respect the user's requirements and host-provided tool permissions. Do not report external success without tool evidence.",
+      "context_window": 1048576,
+      "max_context_window": 1048576,
+      "use_responses_lite": false,
+      "apply_patch_tool_type": "freeform"
+    }
+  ]
+}

@@ -31,6 +31,7 @@ save=function(){if(session&&!session.teacher&&!stageAllowed('write'))return true
 shifts=function(e){if(!session?.teacher&&!stageAllowed('write','schedule')){const k=filters.week+'_'+e.id;if(state().shifts[k])return state().shifts[k];const s=state(),old=s.shifts;s.shifts={...old};try{return classroomBase.shifts(e).slice();}finally{s.shifts=old;}}return classroomBase.shifts(e);};
 modal=function(title,body,submit,label){if(session&&!session.teacher&&submit){const kind=page==='workorders'?'submit':page==='interaction'?null:'write';if(!stageAllowed(kind,classModules[page]?page:null)){toast('教师尚未开放当前阶段操作');return;}}return classroomBase.modal(title,body,submit,label);};
 renderPage=function(){
+ publishTeacherChatContext();
  if(session?.teacher&&page==='classControl'){classControlPage();addTeachingFooter();return;}
  if(session&&!session.teacher){const c=currentAccess();if(c&&!c.entry){$('#content').innerHTML=title('课堂入口暂未开放',c.name+' · '+c.stage)+`<section class="card"><h2>请等待教师开放本班</h2><p>已保存的业务记录与成绩保留；开放后自动恢复访问。</p><button onclick="exportFullBackup()">下载个人备份</button></section>`;addTeachingFooter();return;}
   if(classModules[page]&&!stageAllowed(null,page)){$('#content').innerHTML=title('本阶段尚未开放',classModules[page])+`<div class="card">当前阶段：${esc(c?.stage)}。请根据教师安排进入已开放模块。</div>`;addTeachingFooter();return;}
@@ -64,3 +65,15 @@ sendMessage=function(id){modal(session.teacher?'发送班级通知或个人指�
 async function refreshClassAccess(){if(!session||session.teacher)return;try{const before=JSON.stringify(session.access),r=await classroomBase.api('/hotel/api/session');if(!session||session.id!==r.session.id)return;session.access=r.session.access;session.classId=r.session.classId;if(before!==JSON.stringify(session.access)){pendingCopy();if($('#modal').open)$('#modal').close();render();toast('教师已更新班级阶段：'+session.access.stage);}}catch(e){if(e.status===401)syncStatus(e.message,true);}}
 setInterval(refreshClassAccess,3000);
 // 初始化由手机适配层执行。
+
+// Keep the assistant outside the re-rendered course DOM and pass only selected IDs.
+function publishTeacherChatContext(extra={}){
+ window.dispatchEvent(new CustomEvent('teacher-chat-identity',{detail:session?.teacher?{teacher:{id:session.id,name:session.name},context:{page,...(classroom.selected?{class_id:classroom.selected}:{}),...extra}}:null}));
+}
+const chatViewStudent=viewStudent;
+viewStudent=async function(id){await chatViewStudent(id);if($('#modal').open)publishTeacherChatContext({student_id:id});};
+const chatEditWorkorder=editWorkorder;
+editWorkorder=function(id){chatEditWorkorder(id);if(id)publishTeacherChatContext({workorder_id:id});};
+const chatReviewWorkorder=reviewWorkorder;
+reviewWorkorder=function(orderId,studentId){chatReviewWorkorder(orderId,studentId);publishTeacherChatContext({workorder_id:orderId,student_id:studentId});};
+document.addEventListener('close',e=>{if(e.target.id==='modal')publishTeacherChatContext();},true);

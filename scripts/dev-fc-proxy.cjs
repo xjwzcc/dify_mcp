@@ -8,6 +8,7 @@ const root = path.resolve(__dirname, '..');
 const DEFAULT_FC = 'https://cc-dify-mcp-wvsdgstfwa.cn-hangzhou.fcapp.run';
 const files = {
   '/': 'portal/index.html',
+  ...Object.fromEntries(['catering','hotel'].flatMap(c=>['chat.js','api.js','state.js','markdown.js','vendor/marked.js','vendor/purify.js','chat.css'].map(f=>['/'+c+'/teacher-chat/'+f,'shared/teacher-chat/'+f]))),
   '/accounts/': 'apps/accounts/public/index.html',
   '/accounts/app.js': 'apps/accounts/public/app.js',
   '/accounts/style.css': 'apps/accounts/public/style.css',
@@ -77,7 +78,7 @@ function createProxy(upstream = DEFAULT_FC) {
     const protectedRequest = api || pathname === '/catering/original.html' || !['GET', 'HEAD'].includes(req.method);
     if ((req.headers.origin && req.headers.origin !== localOrigin) || (protectedRequest && req.headers['sec-fetch-site'] === 'cross-site'))
       return reply(res, 403, '拒绝跨站请求');
-    if (pathname.endsWith('/api/account-bridge')) return reply(res, 404, '接口不存在');
+    if (pathname.endsWith('/api/account-bridge') || /\/api\/agent-bridge(?:\/|$)/.test(pathname)) return reply(res, 404, '接口不存在');
     if (api) return forward(req, res);
     if (!['GET', 'HEAD'].includes(req.method)) return reply(res, 405, '静态页面仅支持读取');
     if (['/catering', '/hotel', '/accounts'].includes(pathname)) { res.writeHead(308, { Location: pathname + '/' }); return res.end(); }

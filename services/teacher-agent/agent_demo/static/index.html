@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sandbox Chat</title><link rel="stylesheet" href="/style.css"></head>
+<body><aside><div class="brand">A<span> / </span>Sandbox</div><h1>从问题到成果。</h1>
+<p>Codex CLI · DeepSeek<br>隔离执行，连续对话。</p>
+<label>访问令牌<input id="key" type="password" autocomplete="off" placeholder="Chat API Key，仅保存在当前页面"></label>
+<label>会话 ID<input id="session" placeholder="新建或粘贴已有会话 ID"></label>
+<div class="row"><button id="new">新建会话</button><button id="load" class="secondary">载入</button></div>
+<div class="note">每次执行使用独立沙箱。已提交文件会在下一轮恢复。</div></aside>
+<main><header><span id="status" role="status">准备开始</span><button id="cancel" class="secondary" disabled>停止执行</button></header>
+<section id="messages" aria-live="polite"><div class="empty">有什么需要一起完成？<small>分析数据、编写脚本，或根据文件生成报告。</small></div></section>
+<form id="composer"><textarea id="prompt" rows="3" required placeholder="描述你的任务…"></textarea>
+<div class="row"><label class="upload">附加文件<input id="file" type="file" multiple></label>
+<label class="check"><input id="skill" type="checkbox">数据分析 Skill</label><button id="send">发送</button></div>
+<div id="attachments"></div><div id="error" role="alert"></div></form></main>
+<script src="/app.js"></script></body></html>

@@ -1,0 +1,73 @@
+edition: 3.0.0
+name: agent-demo
+access: default
+resources:
+  control:
+    component: fc3
+    props:
+      region: ${env(FC_REGION)}
+      functionName: agent-demo-control
+      runtime: custom-container
+      cpu: 2
+      memorySize: 4096
+      diskSize: 512
+      timeout: 240
+      instanceConcurrency: 20
+      customContainerConfig:
+        image: ${env(CONTROL_IMAGE)}
+        command: ["agent-demo"]
+        args: ["serve", "--port", "8080"]
+        port: 8080
+      environmentVariables:
+        DATA_DIR: /tmp/agent-demo
+        DATABASE_URL: ${env(DATABASE_URL)}
+        BLOB_BACKEND: s3
+        S3_BUCKET: ${env(S3_BUCKET)}
+        S3_ENDPOINT: ${env(S3_ENDPOINT)}
+        AWS_ACCESS_KEY_ID: ${env(AWS_ACCESS_KEY_ID)}
+        AWS_SECRET_ACCESS_KEY: ${env(AWS_SECRET_ACCESS_KEY)}
+        AWS_DEFAULT_REGION: ${env(FC_REGION)}
+        CHAT_API_KEYS: ${env(CHAT_API_KEYS)}
+        CONTROL_ADMIN_KEY: ${env(CONTROL_ADMIN_KEY)}
+        BRIDGE_SIGNING_KEY: ${env(BRIDGE_SIGNING_KEY)}
+        DEEPSEEK_API_KEY: ${env(DEEPSEEK_API_KEY)}
+        DEEPSEEK_BASE_URL: ${env(DEEPSEEK_BASE_URL)}
+        MODEL: ${env(MODEL)}
+        SANDBOX_PROVIDER: fc
+        FC_TEMPLATE: ${env(FC_TEMPLATE)}
+        E2B_API_KEY: ${env(E2B_API_KEY)}
+        E2B_API_URL: ${env(E2B_API_URL)}
+        E2B_DOMAIN: ${env(E2B_DOMAIN)}
+        GATEWAY_URL: ${env(GATEWAY_URL)}
+        FC_EGRESS_CIDRS: ${env(FC_EGRESS_CIDRS)}
+        FC_NETWORK_VERIFIED: ${env(FC_NETWORK_VERIFIED)}
+        CODEX_SANDBOX_MODE: ${env(CODEX_SANDBOX_MODE)}
+        ALLOW_EXTERNAL_SANDBOX: ${env(ALLOW_EXTERNAL_SANDBOX)}
+      triggers:
+        - triggerName: http
+          triggerType: http
+          triggerConfig:
+            authType: anonymous
+            methods: [GET, POST]
+  scheduler:
+    component: fc3
+    props:
+      region: ${env(FC_REGION)}
+      functionName: agent-demo-scheduler
+      runtime: python3.10
+      handler: index.handler
+      code: ./scheduler
+      cpu: 0.5
+      memorySize: 512
+      timeout: 240
+      instanceConcurrency: 1
+      environmentVariables:
+        GATEWAY_URL: ${env(GATEWAY_URL)}
+        CONTROL_ADMIN_KEY: ${env(CONTROL_ADMIN_KEY)}
+      triggers:
+        - triggerName: reconcile
+          triggerType: timer
+          triggerConfig:
+            cronExpression: "@every 1m"
+            enable: true
+            payload: "{}"

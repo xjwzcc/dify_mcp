@@ -2,10 +2,18 @@
   "name": "wushanyuan-teaching-platform",
   "version": "1.0.0",
   "private": true,
-  "engines": { "node": ">=24" },
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "start": "node server.cjs",
     "dev:fc": "node scripts/dev-fc-proxy.cjs",
+    "vendor:teacher-chat": "node scripts/vendor-teacher-chat.cjs",
     "test:integration": "node --test tests/integration.test.cjs"
+  },
+  "devDependencies": {
+    "dompurify": "3.4.17",
+    "jsdom": "29.1.1",
+    "marked": "18.1.1"
   }
 }

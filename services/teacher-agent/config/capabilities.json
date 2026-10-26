@@ -1,0 +1,218 @@
+{
+  "profiles": {
+    "default": {
+      "skills": [
+        "data-analysis"
+      ],
+      "tools": [
+        "current_time"
+      ]
+    },
+    "hotel-teacher": {
+      "skills": [
+        "teaching-assistant"
+      ],
+      "tools": [
+        "get_course_overview",
+        "list_students_progress",
+        "get_student_detail",
+        "list_workorders",
+        "get_submission_detail"
+      ]
+    },
+    "catering-teacher": {
+      "skills": [
+        "teaching-assistant"
+      ],
+      "tools": [
+        "get_course_overview",
+        "list_students_progress",
+        "get_student_detail",
+        "list_workorders",
+        "get_submission_detail"
+      ]
+    }
+  },
+  "skills": {
+    "data-analysis": "skills/data-analysis",
+    "teaching-assistant": "skills/teaching-assistant"
+  },
+  "tools": {
+    "current_time": {
+      "kind": "clock",
+      "effect": "read",
+      "description": "Return the current UTC date and time.",
+      "schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    "get_course_overview": {
+      "kind": "teaching",
+      "effect": "read",
+      "description": "读取当前课程或班级的学生、工单、提交与待批阅数量。",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "class_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "workorder_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    "list_students_progress": {
+      "kind": "teaching",
+      "effect": "read",
+      "description": "分页列出学生实训进度和工单提交状态，可筛选未提交、待批阅、退回修改、已评价。",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "class_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "student_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "workorder_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "status": {
+            "enum": [
+              "未提交",
+              "待批阅",
+              "退回修改",
+              "已评价"
+            ]
+          },
+          "cursor": {
+            "type": "string",
+            "pattern": "^[0-9]{1,10}$"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    "get_student_detail": {
+      "kind": "teaching",
+      "effect": "read",
+      "description": "读取指定学生的实训汇总、提交和分页操作记录。",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "student_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "class_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "cursor": {
+            "type": "string",
+            "pattern": "^[0-9]{1,10}$"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "student_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "list_workorders": {
+      "kind": "teaching",
+      "effect": "read",
+      "description": "分页读取工单内容及评分要求。",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "class_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "workorder_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "status": {
+            "enum": [
+              "草稿",
+              "已发布"
+            ]
+          },
+          "cursor": {
+            "type": "string",
+            "pattern": "^[0-9]{1,10}$"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      }
+    },
+    "get_submission_detail": {
+      "kind": "teaching",
+      "effect": "read",
+      "description": "读取指定学生指定工单的实际提交、历史记录和教师反馈。",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "student_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "workorder_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "class_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          }
+        },
+        "required": [
+          "student_id",
+          "workorder_id"
+        ],
+        "additionalProperties": false
+      }
+    }
+  }
+}

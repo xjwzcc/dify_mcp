@@ -39,6 +39,7 @@ async function enter(r){
  if(net.conflict){syncStatus('发现未上传操作与服务器版本冲突',true);showSyncProblem();}else if(!session.teacher)await flush().catch(()=>{});
 }
 renderLogin=function(){
+ window.dispatchEvent(new CustomEvent('teacher-chat-identity',{detail:null}));
  session=null;if(net.events)net.events.close();clearInterval(net.refreshTimer);net.events=null;
  $('#app').innerHTML=`<div class="login"><section class="loginhero"><div style="color:var(--gold);letter-spacing:4px;margin-bottom:28px">LANTING HOTEL · LIVE CLASS</div><h1>每一次实训，<br>都被认真记录。</h1><p>酒店人力资源课程 · 联网实训系统</p><div class="row" style="margin:28px 0">300 间客房 · 250 名员工 · 九大模块</div><p>学生操作自动入库，教师课堂实时查看。<br>刷新、换电脑后登录，继续自己的酒店管理进度。</p></section><section class="loginbox"><h2>进入课堂</h2><p><a href="/accounts/">统一账号登录 / 学生与教师注册</a></p><p class="muted">首次登录自动建立账号，请记住自己设置的密码。</p><div class="tabs"><button id="studentTab">学生实训</button><button class="secondary" id="teacherTab">教师管理</button></div><form id="loginform"></form><div class="notice smalltext" style="margin-top:22px">服务器统一存档 · 实时同步 · 业务日期 ${TODAY}<br>已有账号直接填写原姓名、学号和密码；忘记密码由教师重置。</div></section></div>`;
  let teacherMode=location.pathname.endsWith('/teacher');

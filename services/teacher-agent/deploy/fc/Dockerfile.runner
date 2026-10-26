@@ -1,0 +1,7 @@
+# First build sandbox_runtime/Dockerfile and publish that linux/amd64 image.
+ARG RUNNER_IMAGE
+FROM ${RUNNER_IMAGE}
+# FC supplies its own sandbox agent. Start Codex only through commands.run,
+# never through the OCI image's startup command.
+USER root
+CMD ["sleep", "infinity"]

@@ -1,0 +1,37 @@
+name: agent-demo
+services:
+  control:
+    build: .
+    container_name: agent-demo-control
+    env_file: .env
+    environment:
+      DATABASE_URL: sqlite:////state/agent.db
+      DATA_DIR: /state
+      GATEWAY_URL: http://control:8080
+    volumes:
+      - state:/state
+    ports:
+      - "127.0.0.1:8080:8080"
+    command: ["sh", "-c", "agent-demo init-db && exec agent-demo serve"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"]
+      interval: 5s
+      timeout: 2s
+      retries: 20
+  worker:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: sqlite:////state/agent.db
+      DATA_DIR: /state
+      GATEWAY_URL: http://control:8080
+      CONTROL_CONTAINER: agent-demo-control
+    command: ["agent-demo", "worker"]
+    volumes:
+      - state:/state
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      control:
+        condition: service_healthy
+volumes:
+  state:

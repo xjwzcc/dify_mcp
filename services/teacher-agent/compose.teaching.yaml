@@ -1,0 +1,31 @@
+name: teacher-agent
+services:
+  control:
+    build:
+      context: .
+      dockerfile: Dockerfile.teaching
+    image: teacher-agent-control:teaching-v1
+    restart: unless-stopped
+    env_file: ${TEACHER_AGENT_ENV:-.env.teaching}
+    environment:
+      TEACHING_MODE: "1"
+      TEACHING_ENV: production
+    ports:
+      - "127.0.0.1:8080:8080"
+    command: ["agent-demo", "serve"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+  worker:
+    image: teacher-agent-control:teaching-v1
+    restart: unless-stopped
+    env_file: ${TEACHER_AGENT_ENV:-.env.teaching}
+    environment:
+      TEACHING_MODE: "1"
+      TEACHING_ENV: production
+    command: ["agent-demo", "worker"]
+    depends_on:
+      control:
+        condition: service_healthy

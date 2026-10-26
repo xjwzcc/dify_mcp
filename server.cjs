@@ -11,6 +11,17 @@ if (!['nas', 'feishu', 'oss'].includes(backend)) throw Error('Invalid STORAGE_BA
 const remoteStorage = backend !== 'nas';
 const dataDir = path.resolve(process.env.DATA_DIR || (remoteStorage ? '/tmp/teaching-cache' : path.join(__dirname, 'data')));
 const production = process.env.NODE_ENV === 'production';
+const internalAgent = process.env.TEACHER_AGENT_MODE === 'fc-internal';
+if (internalAgent) {
+  if (backend !== 'oss' || process.env.OSS_SINGLE_WRITER !== '1') throw Error('Internal Agent requires single-writer OSS');
+  if (!process.env.DEEPSEEK_API_KEY) throw Error('DEEPSEEK_API_KEY is required');
+  // These are instance-local trust relationships, never model/client credentials.
+  process.env.AGENT_SIGNING_KEY = crypto.randomBytes(32).toString('hex');
+  process.env.AGENT_TOOL_VERIFY_KEY = crypto.randomBytes(32).toString('hex');
+  process.env.AGENT_PERSISTENCE_KEY = crypto.randomBytes(32).toString('hex');
+  process.env.AGENT_BASE_URL = 'http://127.0.0.1:9181';
+  process.env.TEACHING_DEPLOYMENT_ID ||= 'cc_dify_mcp-hangzhou';
+}
 if (backend === 'nas' && production && (!process.env.DATA_DIR || dataDir.startsWith('/tmp/') || dataDir.startsWith('/code/'))) {
   throw new Error('Production requires DATA_DIR on persistent storage, e.g. /mnt/teaching/data');
 }
@@ -42,25 +53,30 @@ const config = remoteStorage ? {
 } : JSON.parse(fs.readFileSync(configFile, 'utf8'));
 const accountEnabled = backend !== 'feishu';
 const bridgeSecret = crypto.randomBytes(32).toString('hex');
+const agentBridgeSecret = crypto.randomBytes(32).toString('hex');
 const services = [
   { name: 'catering', port: Number(process.env.CATERING_PORT || 9101), code: config.cateringCode },
   { name: 'hotel', port: Number(process.env.HOTEL_PORT || 9102), code: config.hotelCode }
 ];
 if (accountEnabled) services.push({ name: 'accounts', port: Number(process.env.ACCOUNTS_PORT || 9104) });
+const chatGateway = require('./agent/chat-gateway.cjs')({ services, bridgeSecret: agentBridgeSecret });
 const children = [];
+let persistenceServer;
+let agentReady = !internalAgent;
+let agentFailed = false;
 let stopping = false;
-function start(command, args, env) {
-  const child = spawn(command, args, { cwd: __dirname, env: { ...process.env, ...env }, stdio: 'inherit' });
+function start(command, args, env, cwd = __dirname, critical = true) {
+  const child = spawn(command, args, { cwd, env: { ...process.env, ...env }, stdio: 'inherit' });
   children.push(child);
-  child.on('error', error => { console.error(error.message); shutdown(1); });
-  child.on('exit', () => { if (!stopping) shutdown(1); });
+  child.on('error', error => { console.error(error.message); if (critical) shutdown(1); else agentFailed = true; });
+  child.on('exit', () => { if (!stopping) { if (critical) shutdown(1); else agentFailed = true; } });
 }
 for (const service of services) {
   start(process.execPath, [path.join(__dirname, 'apps', service.name, 'server.cjs')], {
     PORT: String(service.port), HOST: '127.0.0.1',
     DATA_DIR: path.join(dataDir, service.name),
     TEACHER_PASSWORD: config.teacherPassword, CLASS_CODE: service.code || '',
-    ACCOUNT_BRIDGE_SECRET: bridgeSecret, CATERING_PORT: String(services[0].port), HOTEL_PORT: String(services[1].port),
+    ACCOUNT_BRIDGE_SECRET: bridgeSecret, AGENT_BRIDGE_SECRET: agentBridgeSecret, CATERING_PORT: String(services[0].port), HOTEL_PORT: String(services[1].port),
     SECURE_COOKIE: production ? '1' : (process.env.SECURE_COOKIE || '0')
   });
 }
@@ -113,12 +129,14 @@ const server = http.createServer(async (req, res) => {
   catch { return json(res, 400, { error: '无效地址' }); }
   if (url.pathname === '/healthz') {
     const checks = await serviceHealth();
-    return json(res, checks.every(Boolean) ? 200 : 503, { ok: checks.every(Boolean), storage: backend, services: checks });
+    return json(res, checks.every(Boolean) ? 200 : 503, { ok: checks.every(Boolean), storage: backend, services: checks,
+      ...(internalAgent ? {agent: agentReady && !agentFailed} : {}) });
   }
   if (url.pathname === '/' && ['GET', 'HEAD'].includes(req.method)) {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
     return res.end(req.method === 'HEAD' ? undefined : fs.readFileSync(path.join(__dirname, 'portal/index.html')));
   }
+  if (await chatGateway(req, res, url)) return;
   for (const service of services) {
     const prefix = '/' + service.name;
     if (url.pathname === prefix) {
@@ -147,11 +165,32 @@ server.on('error', error => { console.error(error.message); shutdown(1); });
 // FC considers the runtime initialized once this port listens. Keep initialization
 // active until remote recovery and every child service are ready.
 (async () => {
+  if (internalAgent) {
+    persistenceServer = await require('./agent/persistence.cjs').startPersistence();
+    const agentRoot = path.join(__dirname,'services/teacher-agent');
+    start(process.env.PYTHON || 'python3', ['-m','agent_demo.fc_main'], {
+      PATH:path.join(__dirname,'bin')+':'+process.env.PATH,
+      PYTHONPATH:agentRoot+'/python:'+agentRoot,
+      DATA_DIR:'/tmp/teacher-agent-control', DATABASE_URL:'sqlite:////tmp/teacher-agent-control/agent.sqlite',
+      SANDBOX_PROVIDER:'fc-internal', BLOB_BACKEND:'fc-oss', MAX_ACTIVE_EXECUTIONS:'1',
+      CODEX_SANDBOX_MODE:'danger-full-access', ALLOW_EXTERNAL_SANDBOX:'true',
+      TEACHING_MODE:'1', TEACHING_ENV:'production', TEACHING_BASE_URL:'http://127.0.0.1:'+port,
+      TEACHING_VERIFY_KEY:process.env.AGENT_SIGNING_KEY, TEACHING_TOOL_SIGNING_KEY:process.env.AGENT_TOOL_VERIFY_KEY,
+      CAPABILITY_REGISTRY:agentRoot+'/config/capabilities.json',
+      BRIDGE_DIR:agentRoot+'/bridge', BRIDGE_SIGNING_KEY:crypto.randomBytes(32).toString('hex'),
+      BRIDGE_URL:'http://127.0.0.1:9183', GATEWAY_URL:'http://127.0.0.1:9181',
+      MODEL:process.env.TEACHER_AGENT_MODEL || 'deepseek-flash',
+      MODEL_REASONING_EFFORT:process.env.TEACHER_AGENT_REASONING_EFFORT || 'low', ATTEMPT_SECONDS:'180'
+    }, agentRoot, false);
+  }
   const deadline = Date.now() + 90000;
   while (!stopping) {
     const checks = await serviceHealth();
     if (stopping) return;
-    if (checks.every(Boolean)) {
+    if (internalAgent && !agentReady) {
+      try { agentReady=(await fetch('http://127.0.0.1:9181/health',{signal:AbortSignal.timeout(1000)})).ok; } catch {}
+    }
+    if (checks.every(Boolean) && (agentReady || agentFailed)) {
       server.listen(port, process.env.HOST || '0.0.0.0', () => console.log(`Teaching portal ready: http://localhost:${port}`));
       return;
     }
@@ -163,6 +202,7 @@ function shutdown(code = 0) {
   if (stopping) return;
   stopping = true;
   server.close();
+  persistenceServer?.close();
   for (const child of children) child.kill('SIGTERM');
   const timer = setTimeout(() => {
     for (const child of children) if (child.exitCode === null) child.kill('SIGKILL');

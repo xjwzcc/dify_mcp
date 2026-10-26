@@ -134,7 +134,7 @@ class OssClient {
 
 class OssJournal {
   constructor(namespace, env = process.env) {
-    if (!['catering', 'hotel', 'accounts'].includes(namespace)) throw Error('Invalid OSS namespace');
+    if (!['catering', 'hotel', 'accounts', 'teacher-agent'].includes(namespace)) throw Error('Invalid OSS namespace');
     if (env.OSS_SINGLE_WRITER !== '1') throw Error('OSS requires OSS_SINGLE_WRITER=1 and one active deployment');
     if (!/^[a-fA-F0-9]{64}$/.test(env.OSS_STORAGE_KEY || '')) throw Error('OSS_STORAGE_KEY must be a persistent 32-byte hex encryption key');
     const prefix = env.OSS_PREFIX || 'teaching/v1';
@@ -173,7 +173,7 @@ class OssJournal {
     const keys = (await this.client.list(this.prefix)).sort();
     if (!keys.length) {
       // A separate, additive account namespace has no legacy classroom data to import.
-      if (this.namespace === 'accounts') { await this.initialize([]); return this.restore(); }
+      if (['accounts', 'teacher-agent'].includes(this.namespace)) { await this.initialize([]); return this.restore(); }
       throw Error('OSS namespace is not initialized; use scripts/init-oss.cjs or migrate existing data');
     }
     // Preserve the entire immutable history. No lifecycle deletion on this prefix.
