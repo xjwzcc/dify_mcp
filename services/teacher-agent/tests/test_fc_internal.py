@@ -57,10 +57,10 @@ def test_internal_boundary_has_no_host_mount_or_network(monkeypatch,tmp_path):
 def test_internal_config_requires_durable_bounded_concurrency():
     with pytest.raises(ValueError,match='durable fc-oss'):
         Settings(provider='fc-internal').validate()
-    for count in [1, 4]:
+    for count in [1, 4, 30]:
         Settings(provider='fc-internal',blob_backend='fc-oss',max_active=count).validate()
-    with pytest.raises(ValueError,match='1 to 4'):
-        Settings(provider='fc-internal',blob_backend='fc-oss',max_active=5).validate()
+    with pytest.raises(ValueError,match='1 to 30'):
+        Settings(provider='fc-internal',blob_backend='fc-oss',max_active=31).validate()
 
 
 def test_result_symlink_does_not_escape(tmp_path):
@@ -179,13 +179,38 @@ def test_cleanup_cancels_deadline_and_kills_running_process(monkeypatch,tmp_path
     from unittest.mock import Mock
     root=tmp_path/'box';root.mkdir()
     process=Mock(pid=43210);process.poll.return_value=None
+    process.wait.side_effect=[internal_sandbox.subprocess.TimeoutExpired('keeper',2),None]
     timer=Mock();kills=[]
     monkeypatch.setattr(internal_sandbox.os,'killpg',lambda pid,sig:kills.append(pid))
     provider=object.__new__(internal_sandbox.InternalProvider)
-    provider.boxes={'a'*32:{'root':root,'process':process,'proxy':None,'timer':timer}}
+    import threading
+    provider.lock=threading.RLock()
+    provider.boxes={'a'*32:{'root':root,'process':process,'proxy':None,'timer':timer,
+        'cleanup_lock':threading.RLock(),'guard_stop':threading.Event()}}
     provider.destroy({'id':'a'*32})
     assert kills==[43210] and not root.exists() and not provider.boxes
-    timer.cancel.assert_called_once();process.wait.assert_called_once()
+    timer.cancel.assert_called_once();assert process.wait.call_count==2
+
+
+def test_normal_keeper_shutdown_reaps_before_force_kill(monkeypatch):
+    from unittest.mock import Mock
+    process=Mock(pid=43210);process.poll.return_value=None
+    monkeypatch.setattr(internal_sandbox.os,'killpg',lambda *_:pytest.fail('graceful shutdown must reap first'))
+    internal_sandbox.InternalProvider.stop_process({'process':process})
+    process.stdin.close.assert_called_once()
+    process.wait.assert_called_once_with(timeout=2)
+
+
+def test_reap_only_adopted_zombies_of_this_sandbox(monkeypatch):
+    statuses={10:'PPid:\t900\nState:\tZ (zombie)',11:'PPid:\t1\nState:\tZ (zombie)',
+              12:'PPid:\t900\nState:\tS (sleeping)'}
+    waited=[]
+    monkeypatch.setattr(internal_sandbox.InternalProvider,'processes',lambda _:set(statuses))
+    monkeypatch.setattr(internal_sandbox,'Path',lambda path:SimpleNamespace(read_text=lambda:statuses[int(path.split('/')[2])]))
+    monkeypatch.setattr(internal_sandbox.os,'getpid',lambda:900)
+    monkeypatch.setattr(internal_sandbox.os,'waitpid',lambda pid,flags:waited.append(pid))
+    internal_sandbox.InternalProvider.reap({'uid':20001})
+    assert waited==[10]
 
 
 def test_fc_gateway_streams_without_per_delta_remote_writes_and_final_is_durable(tmp_path,backend):
@@ -261,17 +286,20 @@ def test_host_timeout_does_not_include_preparation_budget(monkeypatch,tmp_path):
     provider.boxes={};provider.lock=threading.RLock()
     monkeypatch.setattr(internal_sandbox,'ROOT',tmp_path)
     monkeypatch.setattr(internal_sandbox.os,'chown',lambda *args:None)
-    monkeypatch.setattr(internal_sandbox,'command',lambda *a,**kw:['fake-bwrap'])
-    monkeypatch.setattr(internal_sandbox,'Proxy',lambda *a:Mock())
-    monkeypatch.setattr(internal_sandbox.subprocess,'Popen',lambda *a,**kw:Mock())
-    monkeypatch.setattr(internal_sandbox.threading,'Thread',lambda *a,**kw:Mock())
+    def launch(sid,box):
+        box['process']=Mock();box['process'].poll.return_value=None
+        box['proxy']=Mock();box['control']=tmp_path/(sid+'.control');box['control'].mkdir()
+    monkeypatch.setattr(provider,'launch',launch)
+    monkeypatch.setattr(provider,'quiesce',lambda box:None)
+    monkeypatch.setattr(provider,'control',lambda *a:None)
+    monkeypatch.setattr(provider,'signal_pids',lambda *a:None)
     timers=[]
     def timer(seconds,*args,**kw):
         timers.append(seconds);return Mock()
     monkeypatch.setattr(internal_sandbox.threading,'Timer',timer)
     aid='b'*32;provider.create({'id':aid,'deadline':9999999999})
     (tmp_path/(aid+'.sock')).touch()
-    provider.start(aid,{'seconds':180,'token':'test'}, {})
+    provider.start(aid,{'seconds':180,'token':'test','attempt_id':aid}, {})
     assert timers==[185]
 
 
@@ -289,3 +317,59 @@ def test_parallel_fc_final_commits_survive_recovery(tmp_path):
         rows=list(conn.execute(select(sessions)).mappings())
     assert len(rows)==4
     assert {r['checkpoint']['outputs/result.txt']['ref'] for r in rows}=={'0','1','2','3'}
+
+
+def test_resident_reuses_namespace_until_expiry_or_explicit_close(monkeypatch,tmp_path):
+    import time,threading
+    from unittest.mock import Mock
+    monkeypatch.setattr(internal_sandbox,'ROOT',tmp_path)
+    monkeypatch.setattr(internal_sandbox.os,'chown',lambda *a:None)
+    provider=object.__new__(internal_sandbox.InternalProvider)
+    provider.s=Settings(max_sandboxes=30);provider.boxes={};provider.ended=set();provider.lock=threading.RLock()
+    launches=[]
+    def launch(sid,box):
+        launches.append(sid);box['process']=Mock(pid=123);box['process'].poll.return_value=None
+        box['proxy']=Mock();box['socket']=tmp_path/(sid+'.sock');box['socket'].touch()
+        box['control']=tmp_path/(sid+'.control');box['control'].mkdir()
+    monkeypatch.setattr(provider,'launch',launch)
+    monkeypatch.setattr(provider,'quiesce',lambda box:None)
+    monkeypatch.setattr(provider,'control',lambda *a:None)
+    monkeypatch.setattr(provider,'signal_pids',lambda *a:None)
+    monkeypatch.setattr(provider,'stop_process',lambda box:None)
+    monkeypatch.setattr(internal_sandbox.threading,'Timer',lambda *a,**kw:Mock())
+    sid='1'*32;first='2'*32;second='3'*32;expires=time.time()+28800
+    assert provider.create({'id':first,'session_id':sid,'sandbox_expires':expires})==sid
+    provider.start(sid,{'seconds':180,'token':'first','attempt_id':first},{})
+    root=provider.boxes[sid]['root'];(root/'workspace').mkdir();(root/'workspace'/'keep.txt').write_text('retained')
+    provider.destroy({'id':first,'session_id':sid,'state':'COMMITTED'})
+    assert sid in provider.boxes and provider.boxes[sid]['proxy'].token==''
+    assert provider.create({'id':second,'session_id':sid,'sandbox_expires':expires+1000})==sid
+    provider.start(sid,{'seconds':180,'token':'second','attempt_id':second},{})
+    assert launches==[sid] and (root/'workspace'/'keep.txt').read_text()=='retained'
+    assert provider.boxes[sid]['expires']==expires  # No sliding lifetime.
+    provider.destroy({'id':first,'session_id':sid,'state':'COMMITTED'})
+    assert provider.boxes[sid]['proxy'].token=='second'  # Delayed old cleanup is fenced.
+    provider.destroy({'id':second,'session_id':sid,'state':'CANCELLED'})
+    assert provider.boxes[sid]['reset']
+    provider.end_session(sid)
+    assert not provider.boxes and not list(tmp_path.iterdir())
+    with pytest.raises(ValueError,match='SESSION_CLOSED'):
+        provider.create({'id':second,'session_id':sid})
+    expired='4'*32;provider.create({'id':expired,'sandbox_expires':time.time()-1})
+    provider.expire(provider.boxes[expired],'SANDBOX_LIFETIME_EXPIRED')
+    assert expired not in provider.boxes and not list(tmp_path.iterdir())
+
+
+def test_thirty_retained_sandboxes_never_evict_an_idle_session(monkeypatch,tmp_path):
+    import threading
+    monkeypatch.setattr(internal_sandbox,'ROOT',tmp_path)
+    monkeypatch.setattr(internal_sandbox.os,'chown',lambda *a:None)
+    provider=object.__new__(internal_sandbox.InternalProvider)
+    provider.s=Settings(max_sandboxes=30);provider.boxes={};provider.ended=set();provider.lock=threading.RLock()
+    ids=[f'{i:032x}' for i in range(31)]
+    for sid in ids[:30]:provider.create({'id':sid})
+    assert provider.has_capacity(ids[0]) and not provider.has_capacity(ids[30])
+    with pytest.raises(ValueError,match='SANDBOX_CAPACITY'):provider.create({'id':ids[30]})
+    provider.end_session(ids[0]);assert provider.has_capacity(ids[30])
+    provider.create({'id':ids[30]});assert len(provider.boxes)==30
+    for sid in list(provider.boxes):provider.end_session(sid)

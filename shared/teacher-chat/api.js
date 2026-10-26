@@ -5,7 +5,7 @@ export async function request(base, path, { method='GET', body, signal }={}) {
   const raw=body instanceof File || body instanceof Blob;
   const response=await fetch(base+path,{method,credentials:'same-origin',signal,
     headers:body!==undefined&&!raw?{'Content-Type':'application/json'}:{},body:body===undefined?undefined:raw?body:JSON.stringify(body)});
-  if(!response.ok){let value;try{value=await response.json();}catch{}throw new ChatError(value?.error?.message||value?.error||'教学助手请求失败',response.status,value?.error?.code);}
+  if(!response.ok){let value;try{value=await response.json();}catch{}const code=value?.error?.code||(typeof value?.error==='string'?value.error:'');const messages={TEACHER_SESSION_LIMIT:'每门课程最多保留 5 个未结束会话，请先结束一个旧会话。',TEACHER_QUEUE_FULL:'已有 3 个请求在排队，请稍后再试。',SESSION_CLOSED:'此会话已结束，历史记录仍可查看。请新建对话继续。'};throw new ChatError(messages[code]||value?.error?.message||value?.error||'教学助手请求失败',response.status,code);}
   return response.json();
 }
 export async function* sseFrames(body) {

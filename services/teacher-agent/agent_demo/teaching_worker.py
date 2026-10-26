@@ -50,6 +50,8 @@ def run(service, stop=None):
             worker.cleanup(aid)
         with ThreadPoolExecutor(max_workers=service.s.max_active) as pool:
             list(pool.map(step, ids))
+        if service.s.provider == 'fc-internal':
+            Worker(service).backend.sweep()
 
     allocation_pool = ThreadPoolExecutor(max_workers=service.s.max_active)
     allocating = set()

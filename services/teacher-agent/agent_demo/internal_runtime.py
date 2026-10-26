@@ -55,3 +55,6 @@ class InternalRuntime:
         for eid in list(self.refs):
             self.pause(eid,'CLIENT_DISCONNECTED')
         self.thread.join(timeout=5)
+        backend = Worker(self.service).backend
+        for sid in list(backend.boxes):
+            backend.end_session(sid)

@@ -47,6 +47,8 @@ test('teacher gateway authenticates course sessions, signs requests and brokers 
       const asset=await call(`/${course}/teacher-chat/${file}`);assert.equal(asset.status,200);assert.ok(asset.body.length>100);
     }
     assert.match((await call(`/${course}/api/chat/executions/${eid}/events`,{cookie:teacher[course]})).body,/assistant.delta/);
+    assert.equal((await call(`/${course}/api/chat/sessions/${sid}/close`,{cookie:teacher[course],body:{}})).status,200);
+    assert.equal((await call(`/${course}/api/chat/sessions/${sid}/close`,{body:{}})).status,401);
   }
   assert.equal((await call('/hotel/api/chat/capabilities',{cookie:teacher.catering})).status,401);
   async function tool(course,name,args={},action='tool'){

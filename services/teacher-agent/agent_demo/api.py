@@ -90,7 +90,7 @@ def create_app(settings=None, service=None):
     @app.exception_handler(ValueError)
     async def invalid(_, exc):
         code = str(exc)[:300]
-        return JSONResponse({"error": code}, status_code=429 if code == "TEACHER_QUEUE_FULL" else 409 if code == "REQUEST_ID_CONFLICT" else 400)
+        return JSONResponse({"error": code}, status_code=429 if code in {"TEACHER_QUEUE_FULL", "TEACHER_SESSION_LIMIT"} else 409 if code in {"REQUEST_ID_CONFLICT", "SESSION_CLOSED"} else 400)
 
     def principal(request):
         if settings.teaching_mode:
@@ -138,6 +138,12 @@ def create_app(settings=None, service=None):
     @app.get("/api/chat/sessions")
     def list_sessions(request: Request, cursor: str | None = None, limit: int = 20):
         return page_query(service, principal(request)["tenant"], cursor=cursor, limit=limit)
+
+    @app.post('/api/chat/sessions/{sid}/close')
+    def close_session(sid: str, request: Request):
+        if not settings.teaching_mode:
+            raise HTTPException(404)
+        return service.close_session(principal(request)['tenant'], sid)
 
     @app.post("/api/chat/sessions/{sid}/attachments")
     async def upload(sid: str, request: Request, name: str):

@@ -16,7 +16,7 @@ from starlette.responses import JSONResponse
 
 from .capabilities import canonical, digest
 from .db import meta, sessions, executions, attempts, events, row, uid
-from .service import Service
+from .service import Service, ACTIVE, TERMINAL
 from .storage import InputError
 
 VERSION = "teaching-read-v1"
@@ -29,6 +29,11 @@ session_info = Table("teacher_session_info", meta,
     Column("request_id", String(128), nullable=False), Column("title", String(100), nullable=False),
     UniqueConstraint("tenant", "request_id"))
 capacity = Table("teacher_capacity_lock", meta, Column("id", String(32), primary_key=True))
+# A new table keeps existing deployments upgradeable without ALTERing historical rows.
+session_lifecycle = Table("teacher_session_lifecycle", meta,
+    Column("session_id", String(32), primary_key=True), Column("tenant", String(128), nullable=False),
+    Column("opened", Float, nullable=False), Column("closed", Float),
+    Column("sandbox_expires", Float, nullable=False, default=0))
 
 
 def encode(data):
@@ -121,15 +126,66 @@ class TeachingService(Service):
             old = row(conn, session_info, (session_info.c.tenant == tenant) & (session_info.c.request_id == request_id))
             if old:
                 return {"session_id": old["session_id"]}
+            self.admit_session(conn, tenant)
             sid = uid()
             conn.execute(insert(sessions).values(id=sid, tenant=tenant, revision=0, checkpoint={}, created=time.time()))
             conn.execute(insert(session_info).values(session_id=sid, tenant=tenant, request_id=request_id, title=title or "新对话"))
+            conn.execute(insert(session_lifecycle).values(session_id=sid, tenant=tenant, opened=time.time(), sandbox_expires=0))
             return {"session_id": sid}
+
+    def admit_session(self, conn, tenant):
+        count = conn.execute(select(func.count()).select_from(session_lifecycle).where(
+            (session_lifecycle.c.tenant == tenant) & session_lifecycle.c.closed.is_(None))).scalar()
+        if count >= self.s.max_teacher_sessions:
+            raise InputError('TEACHER_SESSION_LIMIT')
+
+    def require_open_session(self, conn, tenant, sid):
+        self.session(conn, tenant, sid)
+        lifecycle = row(conn, session_lifecycle, session_lifecycle.c.session_id == sid)
+        if lifecycle and lifecycle['closed'] is not None:
+            raise InputError('SESSION_CLOSED')
+        if not lifecycle:
+            # Historical conversations are archived until explicitly used again.
+            self.admit_session(conn, tenant)
+            conn.execute(insert(session_lifecycle).values(session_id=sid, tenant=tenant, opened=time.time(), sandbox_expires=0))
+
+    def reserve_sandbox(self, conn, ex):
+        if self.s.provider != 'fc-internal':
+            return None
+        self.require_open_session(conn, ex['tenant'], ex['session_id'])
+        lifecycle = row(conn, session_lifecycle, session_lifecycle.c.session_id == ex['session_id'])
+        expires = lifecycle['sandbox_expires']
+        if expires <= time.time():
+            expires = time.time() + self.s.sandbox_lifetime_seconds
+            conn.execute(update(session_lifecycle).where(session_lifecycle.c.session_id == ex['session_id']).values(sandbox_expires=expires))
+        return expires
+
+    def close_session(self, tenant, sid):
+        with self.db.tx() as conn:
+            self.lock_capacity(conn)
+            self.session(conn, tenant, sid)
+            lifecycle = row(conn, session_lifecycle, session_lifecycle.c.session_id == sid)
+            if not lifecycle:
+                conn.execute(insert(session_lifecycle).values(session_id=sid, tenant=tenant, opened=time.time(), closed=time.time(), sandbox_expires=0))
+            else:
+                conn.execute(update(session_lifecycle).where(session_lifecycle.c.session_id == sid).values(closed=lifecycle['closed'] or time.time(), sandbox_expires=0))
+            pending = list(conn.execute(select(executions.c.id).where(
+                (executions.c.session_id == sid) & ~executions.c.state.in_(TERMINAL))).scalars())
+            for eid in pending:
+                conn.execute(update(executions).where(executions.c.id == eid).values(state='CANCELLED', error='SESSION_CLOSED'))
+                conn.execute(update(attempts).where((attempts.c.execution_id == eid) & attempts.c.state.in_(ACTIVE)).values(state='CANCELLED'))
+                self.db.event(conn, eid, 'turn.cancelled', {'reason':'SESSION_CLOSED'})
+        # Fence durable state first, then synchronously reclaim this session's sandbox.
+        if self.s.provider == 'fc-internal':
+            from .providers import provider
+            provider(self.s).end_session(sid)
+        return {'ok':True, 'closed':True}
 
     def input_fingerprint(self, principal, values):
         return digest([*values, principal.get("page_context", {}), VERSION])
 
     def before_submit(self, conn, principal, sid):
+        self.require_open_session(conn, principal['tenant'], sid)
         count = conn.execute(select(func.count()).select_from(executions).where(
             (executions.c.tenant == principal["tenant"]) & executions.c.state.in_(["QUEUED", "RETRY_WAIT"]))).scalar()
         if count >= self.s.max_teacher_pending:
@@ -146,6 +202,20 @@ class TeachingService(Service):
     def may_claim(self, conn, ex):
         if self.s.provider == 'fc-internal' and not self.runtime.watching(ex['id']):
             return False
+        lifecycle = row(conn, session_lifecycle, session_lifecycle.c.session_id == ex['session_id'])
+        if lifecycle and lifecycle['closed'] is not None:
+            return False
+        if self.s.provider == 'fc-internal':
+            from .providers import provider
+            if not provider(self.s).has_capacity(ex['session_id']):
+                return False
+            # Count actual retained namespaces plus allocations not yet cleaned.
+            # A persisted expiry alone must not hold capacity after FC restarts.
+            reserved = provider(self.s).retained_sessions() | set(conn.execute(
+                select(executions.c.session_id).join(attempts, attempts.c.execution_id == executions.c.id)
+                .where(attempts.c.cleaned == 0)).scalars())
+            if ex['session_id'] not in reserved and len(reserved) >= self.s.max_sandboxes:
+                return False
         occupied = select(attempts).join(executions, attempts.c.execution_id == executions.c.id).where(attempts.c.cleaned == 0)
         total = conn.execute(select(func.count()).select_from(occupied.subquery())).scalar()
         owned = conn.execute(select(func.count()).select_from(
@@ -153,6 +223,9 @@ class TeachingService(Service):
         return total < self.s.max_active and owned < self.s.max_teacher_active
 
     def assert_authorization(self, conn, ex):
+        lifecycle = row(conn, session_lifecycle, session_lifecycle.c.session_id == ex['session_id'])
+        if lifecycle and lifecycle['closed'] is not None:
+            raise InputError('SESSION_CLOSED')
         scope = row(conn, scope_table, scope_table.c.execution_id == ex["id"])
         if not scope or scope["valid_until"] <= time.time():
             raise InputError("AUTHORIZATION_EXPIRED")
@@ -223,6 +296,9 @@ class TeachingService(Service):
         return prompt, files
 
     def upload(self, tenant, sid, name, data):
+        with self.db.tx() as conn:
+            self.lock_capacity(conn)
+            self.require_open_session(conn, tenant, sid)
         if not isinstance(name, str) or not re.fullmatch(r"[^/\\\x00-\x1f]{1,150}\.(txt|csv)", name, re.I):
             raise InputError("TXT_OR_CSV_REQUIRED")
         try:
@@ -234,8 +310,11 @@ class TeachingService(Service):
     def resume_teacher(self, principal, eid):
         # Renew the identity only on an explicit action from the same tenant.
         with self.db.tx() as conn:
+            self.lock_capacity(conn)
             ex = self.execution(conn, principal["tenant"], eid)
             self.db.lock_session(conn, ex["session_id"])
+            self.require_open_session(conn, principal['tenant'], ex['session_id'])
+            self.before_submit(conn, principal, ex['session_id'])
             if ex["state"] != "WAITING_INPUT":
                 raise InputError("Execution is not waiting for input")
             conn.execute(update(scope_table).where(scope_table.c.execution_id == eid).values(identity=principal["identity"], valid_until=0))
@@ -279,5 +358,12 @@ def page_query(service, tenant, *, sid=None, cursor=None, limit=20):
                               "evidence": [e["payload"] for e in ev if e["type"] == "tool.evidence"]})
             else:
                 info = row(conn, session_info, session_info.c.session_id == r["id"])
-                items.append({"id": r["id"], "title": info["title"] if info else "新对话", "created": r["created"]})
-        return {"items": list(reversed(items)) if sid else items, "next_cursor": rows[-1]["id"] if more else None}
+                lifecycle = row(conn, session_lifecycle, session_lifecycle.c.session_id == r['id'])
+                items.append({"id": r["id"], "title": info["title"] if info else "新对话", "created": r["created"],
+                              'closed': bool(lifecycle and lifecycle['closed'] is not None)})
+        result = {"items": list(reversed(items)) if sid else items, "next_cursor": rows[-1]["id"] if more else None}
+        if sid:
+            lifecycle = row(conn, session_lifecycle, session_lifecycle.c.session_id == sid)
+            result['session'] = {'id':sid, 'closed':bool(lifecycle and lifecycle['closed'] is not None),
+                                 'sandbox_expires_at':lifecycle['sandbox_expires'] if lifecycle else 0}
+        return result

@@ -253,3 +253,85 @@ def test_slow_allocation_does_not_block_another_teacher(teaching,backend,monkeyp
     finally:
         release.set();stop.set();thread.join(8)
     assert not thread.is_alive()
+
+
+def test_five_open_sessions_close_fences_queue_and_releases_slot(teaching, backend):
+    principal=who(teaching)
+    ids=[teaching.create_teacher_session(principal,'session-'+str(i))['session_id'] for i in range(5)]
+    with pytest.raises(InputError,match='TEACHER_SESSION_LIMIT'):
+        teaching.create_teacher_session(principal,'sixth')
+    # Same teacher in another course and another teacher have independent limits.
+    teaching.create_teacher_session(who(teaching,course='catering'),'independent-course')
+    teaching.create_teacher_session(who(teaching,'t2'),'independent-teacher')
+    _,eid=submit(teaching,sid=ids[0])
+    worker=Worker(teaching,backend);attempt,token=worker.claim();worker.start(attempt,token)
+    _,queued=submit(teaching,sid=ids[0],request_id='queued')
+    with pytest.raises(KeyError):teaching.close_session(who(teaching,'t2')['tenant'],ids[0])
+    teaching.close_session(principal['tenant'],ids[0])
+    teaching.close_session(principal['tenant'],ids[0])  # Idempotent.
+    with teaching.db.tx() as conn:
+        assert row(conn,executions,executions.c.id==eid)['state']=='CANCELLED'
+        assert row(conn,executions,executions.c.id==queued)['state']=='CANCELLED'
+    with pytest.raises(PermissionError):teaching.reserve_model_request(token)
+    with pytest.raises(InputError,match='SESSION_CLOSED'):submit(teaching,sid=ids[0],request_id='late')
+    with pytest.raises(InputError,match='SESSION_CLOSED'):teaching.upload(principal['tenant'],ids[0],'x.txt',b'x')
+    assert page_query(teaching,principal['tenant'],sid=ids[0])['session']['closed']
+    assert len(page_query(teaching,principal['tenant'],sid=ids[0])['items'])==2
+    teaching.create_teacher_session(principal,'replacement')
+
+
+def test_thirty_parallel_slots_across_six_teachers_and_three_pending(teaching,backend):
+    from concurrent.futures import ThreadPoolExecutor
+    teaching.s.max_active=30;teaching.s.max_teacher_active=5
+    worker=Worker(teaching,backend)
+    # Interleave submissions and claims so per-teacher queue length never exceeds three.
+    claimed=[]
+    for round_number in range(5):
+        for index in range(6):
+            submit(teaching,who(teaching,'teacher-'+str(index)),f'round-{round_number}')
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            claimed.extend(pool.map(lambda _:worker.claim(),range(6)))
+    assert len([a for a in claimed if a])==30
+    _,extra=submit(teaching,who(teaching,'overflow'),'overflow')
+    assert worker.claim() is None
+    teacher=who(teaching,'teacher-0')
+    with teaching.db.tx() as conn:
+        sid=conn.execute(select(sessions.c.id).where(sessions.c.tenant==teacher['tenant'])).scalar()
+    for i in range(3):submit(teaching,teacher,'pending-'+str(i),sid=sid)
+    with pytest.raises(InputError,match='TEACHER_QUEUE_FULL'):
+        submit(teaching,teacher,'pending-4',sid=sid)
+
+
+def test_close_endpoint_is_owner_scoped_and_durable(teaching):
+    client=TestClient(create_app(teaching.s,teaching))
+    principal=who(teaching);sid=teaching.create_teacher_session(principal,'end-test')['session_id']
+    path=f'/api/chat/sessions/{sid}/close';body=b'{}'
+    def close(teacher):return client.post(path,content=body,headers={
+        'X-Teacher-Assertion':signed(teaching,path,body,'POST',teacher=teacher),'Content-Type':'application/json'})
+    assert close('t2').status_code==404
+    assert close('t1').json()=={'ok':True,'closed':True}
+    assert close('t1').status_code==200
+
+
+def test_fc_capacity_counts_retained_and_allocating_but_not_lost_namespaces(teaching,backend,monkeypatch):
+    from types import SimpleNamespace
+    from agent_demo.teaching import session_lifecycle
+    from agent_demo import providers
+    teaching.s.provider='fc-internal';teaching.s.max_sandboxes=1
+    teaching.runtime=SimpleNamespace(watching=lambda _:True)
+    retained=set()
+    monkeypatch.setattr(providers,'provider',lambda _:SimpleNamespace(
+        has_capacity=lambda sid:sid in retained or len(retained)<1,
+        retained_sessions=lambda:set(retained)))
+    old=teaching.create_teacher_session(who(teaching,'old'),'old')['session_id']
+    with teaching.db.tx() as conn:
+        conn.execute(update(session_lifecycle).where(session_lifecycle.c.session_id==old)
+                     .values(sandbox_expires=time.time()+28800))
+    _,first=submit(teaching,who(teaching,'new'),'new')
+    retained.add(old)
+    worker=Worker(teaching,backend)
+    assert worker.claim() is None
+    retained.clear()  # FC restart/resource failure reclaimed the old namespace.
+    assert worker.claim()[0]['execution_id']==first
+    submit(teaching,who(teaching,'another'),'another')
+    assert worker.claim() is None  # Allocation reserves a slot before create().

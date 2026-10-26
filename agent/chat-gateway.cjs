@@ -7,6 +7,7 @@ const routes = [
   ['GET', /^\/capabilities$/], ['GET', /^\/sessions$/], ['POST', /^\/sessions$/],
   ['GET', new RegExp(`^/sessions/${ids}/history$`)], ['POST', new RegExp(`^/sessions/${ids}/messages$`)],
   ['POST', new RegExp(`^/sessions/${ids}/attachments$`)], ['GET', new RegExp(`^/executions/${ids}$`)],
+  ['POST', new RegExp(`^/sessions/${ids}/close$`)],
   ['GET', new RegExp(`^/executions/${ids}/events$`)], ['POST', new RegExp(`^/executions/${ids}/(cancel|resume)$`)],
   ['GET', new RegExp(`^/artifacts/${ids}/download$`)]
 ];

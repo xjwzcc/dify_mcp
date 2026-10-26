@@ -10,6 +10,9 @@ import sys
 import threading
 import http.client
 import stat
+import time
+import secrets
+import selectors
 
 from .providers import encoded_spec
 from .storage import InputError
@@ -30,7 +33,7 @@ def build_bwrap():
     return target
 
 
-def command(directory, executable, *, uid=20001, socket_path=None):
+def command(directory, executable, *, uid=20001, socket_path=None, control_path=None):
     args = [str(build_bwrap()), '--die-with-parent', '--unshare-all', '--new-session',
         '--cap-drop', 'ALL', '--uid', '10001', '--gid', '10001', '--dir', '/proc',
         # Rust current_exe() requires this path. It is a fixed synthetic link,
@@ -47,6 +50,8 @@ def command(directory, executable, *, uid=20001, socket_path=None):
     args += ['--ro-bind', str(RUNTIME), '/opt/runner', '--ro-bind', str(BASE / 'bin'), '/opt/agent-bin']
     if socket_path:
         args += ['--ro-bind', str(socket_path), '/gateway.sock']
+    if control_path:
+        args += ['--ro-bind', str(control_path), '/control']
     return [*args, '--', *executable]
 
 
@@ -63,13 +68,16 @@ class Handler(__import__('http.server', fromlist=['BaseHTTPRequestHandler']).Bas
         # Fixed destination and allowlist. No TCP forwarding, CONNECT or SSRF.
         if self.path not in {'/v1/responses', '/internal/events', '/internal/tools'}:
             self.send_error(404); return
+        token = self.server.token
+        if not token or not secrets.compare_digest(self.headers.get('Authorization', ''), 'Bearer ' + token):
+            self.send_error(403); return
         size = int(self.headers.get('Content-Length', '-1'))
         if not 0 <= size <= 2_064_000 or self.headers.get('Transfer-Encoding'):
             self.send_error(413); return
         upstream = http.client.HTTPConnection('127.0.0.1', 9181, timeout=190)
         try:
             upstream.request('POST', self.path, body=self.rfile.read(size), headers={
-                'Content-Type':'application/json', 'Authorization':'Bearer '+self.server.token})
+                'Content-Type':'application/json', 'Authorization':'Bearer '+token})
             reply = upstream.getresponse()
             self.send_response(reply.status)
             self.send_header('Content-Type', reply.getheader('Content-Type','application/json'))
@@ -84,8 +92,14 @@ class Handler(__import__('http.server', fromlist=['BaseHTTPRequestHandler']).Bas
 class InternalProvider:
     def __new__(cls, settings):
         if id(settings) not in _instances:
+            if sys.platform == 'linux':
+                import ctypes
+                # Adopt orphaned namespace init processes instead of leaving them
+                # to FC's PID 1, which does not reliably reap nested bwrap children.
+                if ctypes.CDLL(None, use_errno=True).prctl(36, 1, 0, 0, 0):
+                    raise RuntimeError('SANDBOX_SUBREAPER_SETUP_FAILED')
             value = super().__new__(cls)
-            value.s = settings; value.boxes = {}; value.lock = threading.RLock()
+            value.s = settings; value.boxes = {}; value.ended = set(); value.lock = threading.RLock()
             ROOT.mkdir(mode=0o711, exist_ok=True)
             _instances[id(settings)] = value
         return _instances[id(settings)]
@@ -99,46 +113,148 @@ class InternalProvider:
     def find(self, aid):
         return aid if self.name(aid) in self.boxes else None
 
-    def create(self, attempt):
-        aid = self.name(attempt['id'])
+    def has_capacity(self, sid):
         with self.lock:
-            if aid in self.boxes:
-                return aid
-            root = ROOT / aid
+            return sid in self.boxes or len(self.boxes) < self.s.max_sandboxes
+
+    def retained_sessions(self):
+        with self.lock:
+            return set(self.boxes)
+
+    def create(self, attempt):
+        sid = self.name(attempt.get('session_id') or attempt['id'])
+        with self.lock:
+            if sid in getattr(self, 'ended', set()):
+                raise InputError('SESSION_CLOSED')
+            if sid in self.boxes:
+                return sid
+            if len(self.boxes) >= getattr(getattr(self, 's', None), 'max_sandboxes', 30):
+                raise InputError('SANDBOX_CAPACITY')
+            root = ROOT / sid
             root.mkdir(mode=0o700)
-            # Every live sandbox has a distinct host UID, including hash collisions.
-            uid = 20000 + int(aid[:6],16) % 40000
+            uid = 20000 + int(sid[:6],16) % 40000
             used = {box['uid'] for box in list(self.boxes.values())}
             while uid in used:
                 uid = 20000 + (uid - 20000 + 1) % 40000
-            # Concurrent jobs must not share the 64 MiB /dev/shm workspace.
             os.chown(root,uid,uid)
-            self.boxes[aid] = {'root':root, 'uid':uid, 'process':None, 'proxy':None,
-                               'timer':None, 'guard_stop':threading.Event(), 'failure':None}
-        return aid
+            self.boxes[sid] = {'root':root, 'uid':uid, 'process':None, 'proxy':None,
+                'timer':None, 'guard_stop':threading.Event(), 'failure':None,
+                'cleanup_lock':threading.RLock(), 'baseline':set(), 'attempt_id':None,
+                'expires':attempt.get('sandbox_expires') or time.time()+28800, 'reset':False}
+        return sid
 
-    def start(self, aid, spec, files):
-        box = self.boxes[aid]
+    @staticmethod
+    def processes(box):
+        result = set()
+        for path in Path('/proc').iterdir():
+            if not path.name.isdigit():
+                continue
+            try:
+                status = (path/'status').read_text()
+                uid = next(line.split()[1] for line in status.splitlines() if line.startswith('Uid:'))
+                if int(uid) == box['uid']:
+                    result.add(int(path.name))
+            except FileNotFoundError:
+                pass
+        return result
+
+    @staticmethod
+    def signal_pids(pids, sig):
+        for pid in pids:
+            try:
+                os.kill(pid, sig)
+            except ProcessLookupError:
+                pass
+
+    @staticmethod
+    def acknowledgement(box, expected):
+        stream = box['process'].stdout
+        with selectors.DefaultSelector() as selector:
+            selector.register(stream, selectors.EVENT_READ)
+            if not selector.select(5):
+                raise InputError('SANDBOX_KEEPER_UNRESPONSIVE')
+            if stream.readline(256).decode().strip() != expected:
+                raise InputError('SANDBOX_KEEPER_PROTOCOL_ERROR')
+
+    def control(self, box, action):
+        nonce = secrets.token_hex(16)
+        box['process'].stdin.write((json.dumps({'id':nonce, 'action':action})+'\n').encode())
+        box['process'].stdin.flush()
+        self.acknowledgement(box, nonce)
+
+    def quiesce(self, box):
+        # A private pipe acknowledgement fences dispatch before killing every other
+        # process of this UID, including children that escaped using setsid().
+        self.control(box, 'idle')
+        for _ in range(50):
+            children = self.processes(box) - box['baseline']
+            if not children:
+                return
+            self.signal_pids(children, signal.SIGKILL)
+            time.sleep(.02)
+        raise InputError('SANDBOX_QUIESCE_FAILED')
+
+    def launch(self, sid, box):
         root, uid = box['root'], box['uid']
-        path = root / 'spec.json'
-        path.write_bytes(encoded_spec({**spec, 'gateway':'http://127.0.0.1:8080'}, files))
-        os.chown(path,uid,uid); path.chmod(0o600)
-        sock = ROOT / (aid+'.sock')
-        proxy = Proxy(str(sock), Handler); proxy.token = spec['token']
+        control = ROOT / (sid + '.control')
+        control.mkdir(mode=0o755)
+        box['control'] = control
+        sock = ROOT / (sid+'.sock')
+        proxy = Proxy(str(sock), Handler); proxy.token = ''
         os.chown(sock,uid,uid); sock.chmod(0o600)
         box['proxy'] = proxy; box['socket'] = sock
         threading.Thread(target=proxy.serve_forever, daemon=True).start()
         box['process'] = subprocess.Popen(['/usr/bin/prlimit', '--nproc=96:96', '--nofile=256:256',
-            '--fsize=24000000:24000000', '--as=1500000000:1500000000', '--cpu=180:180', '--core=0:0', '--',
-            *command(root, [sys.executable, '/opt/runner/internal_entry.py'], socket_path=sock)],
-            env={'PATH':'/usr/bin:/bin'}, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            '--fsize=24000000:24000000', '--as=1500000000:1500000000', '--core=0:0', '--',
+            *command(root, [sys.executable, '/opt/runner/resident.py'], socket_path=sock, control_path=control)],
+            env={'PATH':'/usr/bin:/bin'}, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL, user=uid, group=uid, extra_groups=[], start_new_session=True)
-        # Independent host-side wall-clock guard, even if the runner or OSS stalls.
-        box['timer'] = threading.Timer(spec['seconds'] + 5, self.expire, args=(box, 'ATTEMPT_TIMEOUT'))
-        box['timer'].daemon = True
-        box['timer'].start()
+        self.acknowledgement(box, 'READY')
+        box['baseline'] = self.processes(box)
+        if not box['baseline']:
+            raise InputError('SANDBOX_KEEPER_START_FAILED')
+        box['lifetime_timer'] = threading.Timer(max(0, box['expires']-time.time()), self.expire,
+            args=(box, 'SANDBOX_LIFETIME_EXPIRED'))
+        box['lifetime_timer'].daemon = True
+        box['lifetime_timer'].start()
         box['guard'] = threading.Thread(target=self.guard, args=(box,), daemon=True)
         box['guard'].start()
+
+    @staticmethod
+    def remove(path):
+        if path.is_symlink() or not path.is_dir():
+            path.unlink(missing_ok=True)
+        else:
+            shutil.rmtree(path)
+
+    def start(self, sid, spec, files):
+        box = self.boxes[sid]
+        with box['cleanup_lock']:
+            if self.boxes.get(sid) is not box or sid in getattr(self, 'ended', set()):
+                raise InputError('SESSION_CLOSED')
+            if box['expires'] <= time.time():
+                raise InputError('SANDBOX_LIFETIME_EXPIRED')
+            if not box['process']:
+                self.launch(sid, box)
+            if box['failure'] or box['process'].poll() is not None:
+                raise InputError(box['failure'] or 'SANDBOX_EXIT_WITHOUT_RESULT')
+            self.quiesce(box)
+            root, uid = box['root'], box['uid']
+            # Keep the actual namespace/workspace. Refresh private CLI config and
+            # control files each turn; reset failed drafts from durable checkpoint.
+            for path in root.iterdir():
+                if path.name == 'workspace' and not box['reset']:
+                    continue
+                self.remove(path)
+            box['reset'] = False
+            box['attempt_id'] = spec['attempt_id']
+            payload = encoded_spec({**spec, 'gateway':'http://127.0.0.1:8080'}, files)
+            (box['control']/'spec.json').write_bytes(payload)
+            (box['control']/'spec.json').chmod(0o644)
+            box['proxy'].token = spec['token']
+            box['timer'] = threading.Timer(spec['seconds']+5, self.expire, args=(box,'ATTEMPT_TIMEOUT'))
+            box['timer'].daemon = True; box['timer'].start()
+            self.control(box, 'run')
 
     @staticmethod
     def usage(box):
@@ -167,7 +283,7 @@ class InternalProvider:
 
     def guard(self, box):
         # Independent of DB/OSS locks. These are sampled guards, not cgroup quotas.
-        while not box['guard_stop'].wait(0.5):
+        while not box['guard_stop'].wait(.5 if box.get('attempt_id') else 5):
             try:
                 memory, disk = self.usage(box)
                 if memory > MEMORY_BYTES or disk > WORKSPACE_BYTES:
@@ -179,15 +295,41 @@ class InternalProvider:
 
     def expire(self, box, reason):
         box['failure'] = reason
+        if box.get('proxy'):
+            box['proxy'].token = ''
         self.stop_process(box)
+        if reason == 'SANDBOX_LIFETIME_EXPIRED':
+            sid = box['root'].name
+            with box['cleanup_lock']:
+                if self.boxes.get(sid) is box:
+                    self._destroy(sid, box)
 
     @staticmethod
     def stop_process(box):
         process = box['process']
         if process and process.poll() is None:
-            try: os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError: pass
-            process.wait(timeout=5)
+            # EOF lets the keeper exit and bubblewrap reap its namespace init.
+            # Killing the outer monitor first leaves a zombie with FC's PID 1.
+            try:
+                if process.stdin:
+                    process.stdin.close()
+                process.wait(timeout=2)
+            except (OSError, ValueError, subprocess.TimeoutExpired):
+                try: os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError: pass
+                process.wait(timeout=5)
+        if process and 'uid' in box:
+            InternalProvider.reap(box)
+
+    @staticmethod
+    def reap(box):
+        for pid in InternalProvider.processes(box):
+            try:
+                fields = dict(line.split(':',1) for line in Path(f'/proc/{pid}/status').read_text().splitlines() if ':' in line)
+                if int(fields['PPid']) == os.getpid() and fields['State'].strip().startswith('Z'):
+                    os.waitpid(pid, os.WNOHANG)
+            except (FileNotFoundError, ProcessLookupError, ChildProcessError):
+                pass
 
     def recover_workspaces(self):
         # Called once, before accepting work, after a fresh control process starts.
@@ -196,7 +338,7 @@ class InternalProvider:
             if not root.exists() or root.is_symlink():
                 continue
             for path in root.iterdir():
-                name = path.name.removesuffix('.sock')
+                name = path.name.removesuffix('.sock').removesuffix('.control')
                 if len(name) != 32 or any(c not in '0123456789abcdef' for c in name):
                     continue
                 if path.is_symlink() or not path.is_dir():
@@ -224,40 +366,89 @@ class InternalProvider:
             raw = stream.read(24_000_001)
             if len(raw) > 24_000_000:
                 raise InputError('RESULT_LIMIT')
-            return json.loads(raw)
+            result = json.loads(raw)
+            if box.get('attempt_id') and result.get('attempt_id') != box['attempt_id']:
+                raise InputError('STALE_SANDBOX_RESULT')
+            return result
 
     def destroy(self, attempt):
-        aid = self.name(attempt['id'])
-        box = self.boxes.get(aid)
+        sid = self.name(attempt.get('session_id') or attempt['id'])
+        box = self.boxes.get(sid)
         if not box:
             return
-        with box.setdefault('cleanup_lock', threading.Lock()):
-            if self.boxes.get(aid) is box:
-                self._destroy(aid, box)
-
-    def _destroy(self, aid, box):
-        if box.get('guard_stop'):
-            box['guard_stop'].set()
-        if box.get('guard'):
-            box['guard'].join(timeout=6)
-        if box.get('timer'):
-            box['timer'].cancel()
-            if box['timer'] is not threading.current_thread():
+        with box['cleanup_lock']:
+            if self.boxes.get(sid) is not box:
+                return
+            if (not attempt.get('state') or box['failure'] or box['expires'] <= time.time()
+                or (box['process'] and box['process'].poll() is not None)):
+                self._destroy(sid, box)
+                return
+            if box['attempt_id'] not in {None, attempt['id']}:
+                return  # Delayed cleanup must never stop a later turn.
+            if box.get('proxy'):
+                box['proxy'].token = ''
+            if box.get('timer'):
+                box['timer'].cancel()
                 box['timer'].join(timeout=6)
+                box['timer'] = None
+            try:
+                if box['process']:
+                    self.quiesce(box)
+            except Exception:
+                self._destroy(sid, box)
+                return
+            box['attempt_id'] = None
+            box['reset'] = attempt['state'] != 'COMMITTED'
+
+    def end_session(self, sid):
+        with self.lock:
+            self.ended.add(sid)
+            box = self.boxes.get(sid)
+        if box:
+            with box['cleanup_lock']:
+                if self.boxes.get(sid) is box:
+                    self._destroy(sid, box)
+
+    def sweep(self):
+        for sid, box in list(self.boxes.items()):
+            if box['expires'] <= time.time() or box['failure']:
+                with box['cleanup_lock']:
+                    if self.boxes.get(sid) is box:
+                        self._destroy(sid, box)
+
+    def _destroy(self, sid, box):
+        box['guard_stop'].set()
+        if box.get('proxy'):
+            box['proxy'].token = ''
+        for key in ('timer', 'lifetime_timer'):
+            timer = box.get(key)
+            if timer:
+                timer.cancel()
+                if timer is not threading.current_thread():
+                    timer.join(timeout=6)
+        if box.get('guard') and box['guard'] is not threading.current_thread():
+            box['guard'].join(timeout=6)
         self.stop_process(box)
+        if box['process']:
+            for stream in (box['process'].stdin, box['process'].stdout):
+                if stream:
+                    stream.close()
         if box['proxy']:
             box['proxy'].shutdown(); box['proxy'].server_close()
             box['socket'].unlink(missing_ok=True)
-        shutil.rmtree(box['root'])
-        self.boxes.pop(aid,None)
+        self.remove(box['root'])
+        if box.get('control'):
+            self.remove(box['control'])
+        with self.lock:
+            self.boxes.pop(sid,None)
 
     def preflight(self):
         import tempfile
-        if shutil.disk_usage(ROOT).free < (self.s.max_active + 1) * WORKSPACE_BYTES:
+        if shutil.disk_usage(ROOT).free < (self.s.max_sandboxes + 2) * WORKSPACE_BYTES:
             raise RuntimeError('INSUFFICIENT_SANDBOX_DISK_CAPACITY')
         limits = [Path('/sys/fs/cgroup/memory.max'), Path('/sys/fs/cgroup/memory/memory.limit_in_bytes')]
         memory_limit = next((int(p.read_text()) for p in limits if p.exists() and p.read_text().strip().isdigit()), 0)
-        if memory_limit < (self.s.max_active + 2) * MEMORY_BYTES:
+        if memory_limit < (self.s.max_active + 4) * MEMORY_BYTES + self.s.max_sandboxes * WORKSPACE_BYTES:
             raise RuntimeError('INSUFFICIENT_FC_MEMORY_FOR_CONCURRENCY')
         with tempfile.TemporaryDirectory(prefix='preflight-',dir=ROOT) as work:
             directory=Path(work); os.chown(directory,20001,20001)

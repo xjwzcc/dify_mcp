@@ -46,6 +46,7 @@ class Worker:
                     continue
                 if not self.service.may_claim(conn, ex):
                     continue
+                sandbox_expires = self.service.reserve_sandbox(conn, ex) if hasattr(self.service, 'reserve_sandbox') else None
                 aid, token = uid(), secrets.token_urlsafe(32)
                 number = ex["attempt_no"] + 1
                 preparing_seconds = 30 if self.s.provider == 'fc-internal' else 180
@@ -61,6 +62,7 @@ class Worker:
                 conn.execute(update(sessions).where(sessions.c.id == session["id"])
                     .values(active_execution=ex["id"]))
                 self.db.event(conn, ex["id"], "attempt.started", {"attempt": number}, aid)
+                attempt.update(session_id=ex['session_id'], sandbox_expires=sandbox_expires)
                 return attempt, token
         return None
 
@@ -88,6 +90,7 @@ class Worker:
                     "reasoning_effort": self.s.reasoning_effort,
                     "sandbox_mode": self.s.sandbox_mode, "prompt": prompt, "instructions": SYSTEM,
                     "seconds": self.s.attempt_seconds,
+                    "attempt_id": attempt['id'],
                     "tool_names": [tool["name"] for tool in ex["capabilities"]["tools"]]}
             self.backend.start(box, spec, files)
             with self.db.tx() as conn:
@@ -231,6 +234,8 @@ class Worker:
             a = row(conn, attempts, attempts.c.id == aid)
             if a["cleaned"] or a["state"] in ACTIVE or a["poll_until"] > time.time():
                 return
+            ex = row(conn, executions, executions.c.id == a['execution_id'])
+            a['session_id'] = ex['session_id']
         try:
             self.backend.destroy(a)
         except Exception:

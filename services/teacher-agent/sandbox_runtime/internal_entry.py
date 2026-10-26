@@ -27,6 +27,12 @@ class Server(socketserver.ThreadingTCPServer):
     daemon_threads=True
 
 
-server=Server(('127.0.0.1',8080),Relay)
-threading.Thread(target=server.serve_forever,daemon=True).start()
-main()
+def serve():
+    server=Server(('127.0.0.1',8080),Relay)
+    threading.Thread(target=server.serve_forever,daemon=True).start()
+    return server
+
+
+if __name__ == '__main__':
+    serve()
+    main()

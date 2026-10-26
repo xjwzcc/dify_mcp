@@ -53,6 +53,9 @@ class Settings:
     max_active: int = 4
     max_teacher_active: int = 1
     max_teacher_pending: int = 3
+    max_teacher_sessions: int = 5
+    max_sandboxes: int = 30
+    sandbox_lifetime_seconds: int = 28800
     oss_bucket: str = ""
     oss_endpoint: str = ""
     oss_prefix: str = "teacher-agent/v1/"
@@ -99,6 +102,9 @@ class Settings:
             max_active=int(os.getenv("MAX_ACTIVE_EXECUTIONS", "4")),
             max_teacher_active=int(os.getenv("MAX_TEACHER_ACTIVE", "1")),
             max_teacher_pending=int(os.getenv("MAX_TEACHER_PENDING", "3")),
+            max_teacher_sessions=int(os.getenv("MAX_TEACHER_SESSIONS", "5")),
+            max_sandboxes=int(os.getenv("MAX_RETAINED_SANDBOXES", "30")),
+            sandbox_lifetime_seconds=int(os.getenv("SANDBOX_LIFETIME_SECONDS", "28800")),
             oss_bucket=os.getenv("AGENT_OSS_BUCKET", ""),
             oss_endpoint=os.getenv("AGENT_OSS_ENDPOINT", ""),
             oss_prefix=os.getenv("AGENT_OSS_PREFIX", "teacher-agent/v1/"),
@@ -120,8 +126,10 @@ class Settings:
             raise ValueError("LEASE_SECONDS must be between 30 and 300")
         if self.blob_backend not in {"local", "s3", "oss", "fc-oss"}:
             raise ValueError("Unsupported blob backend")
-        if self.provider == 'fc-internal' and (self.blob_backend != 'fc-oss' or not 1 <= self.max_active <= 4):
-            raise ValueError('FC internal sandbox requires durable fc-oss and 1 to 4 active attempts')
+        if self.provider == 'fc-internal' and (self.blob_backend != 'fc-oss' or not 1 <= self.max_active <= self.max_sandboxes <= 30):
+            raise ValueError('FC internal sandbox requires durable fc-oss and 1 to 30 bounded sandboxes')
+        if not 1 <= self.max_teacher_sessions <= 20 or not 60 <= self.sandbox_lifetime_seconds <= 28800:
+            raise ValueError('Invalid session capacity or sandbox lifetime')
         if self.blob_backend == "oss" and (not self.oss_bucket or not self.oss_endpoint.startswith("https://") or not self.oss_prefix.strip("/")):
             raise ValueError("OSS requires bucket, HTTPS endpoint and a dedicated nonempty prefix")
         if self.teaching_mode:

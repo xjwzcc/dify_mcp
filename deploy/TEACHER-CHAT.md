@@ -5,10 +5,10 @@
 ## 运行边界
 
 - Node 课堂网关、Agent Python 控制服务、DeepSeek Bridge 和 OSS 持久化代理均为可信进程。Python 使用独立工作目录与打包依赖，避免课堂 MCP 的同名包覆盖依赖。
-- 每次 attempt 创建 bubblewrap 沙箱：独立 user/mount/PID/network/IPC/UTS 命名空间，非 root 身份，清空环境变量、丢弃 capabilities，在 `/tmp/teacher-agent-sandboxes/<attempt>` 使用独立磁盘工作区。每个活跃沙箱使用不同宿主 UID，避免进程配额、资源采样相互混淆；仅挂载系统运行库、固定执行程序和自己的工作目录。
+- 每个会话首次执行时创建 bubblewrap 沙箱：独立 user/mount/PID/network/IPC/UTS 命名空间，非 root 身份，清空环境变量、丢弃 capabilities，在 `/tmp/teacher-agent-sandboxes/<session>` 使用独立磁盘工作区。每个活跃沙箱使用不同宿主 UID，避免进程配额、资源采样相互混淆；仅挂载系统运行库、固定执行程序和自己的工作目录。
 - FC 实测不允许嵌套 procfs，因此使用合成 `/proc`，其中仅提供指向固定 Codex 程序的 `/proc/self/exe` 符号链接，满足 Rust 的路径查询。保留 PID 和网络隔离，不挂载宿主 procfs。Codex 使用外层沙箱执行配置 `danger-full-access`；此参数仅在通过启动预检的 bubblewrap 内使用，不存在宿主直接执行 fallback。
 - 沙箱只能通过该 attempt 的 Unix socket 访问固定的模型、事件、只读工具三个接口。代理固定注入当前 attempt 令牌，不接受任意目的地址。DeepSeek 密钥、OSS 密钥、教学签名密钥均不进入沙箱。
-- 默认全局最多四个 attempt 并行，每个教师在每门课程最多两个不同会话并行、至多三个排队请求。同一会话逐轮执行，未回收完成的沙箱继续占用名额。创建沙箱使用有界线程池，慢启动不会阻塞其他教师。FC 推荐 2 vCPU / 4 GiB / 512 MiB 磁盘，单实例 HTTP 并发度保持 100；最大实例数仍为 1，数据库持久化保持单写者。
+- 全局最多保留 30 个会话沙箱、30 个 attempt 并行；每个教师在每门课程最多 5 个未结束会话、5 个执行、至多 3 个排队请求。同一会话逐轮执行，本轮进程清理完成后才释放执行名额。创建沙箱使用有界线程池，慢启动不会阻塞其他教师。FC 目标规格为 16 vCPU / 32 GiB / 10 GiB 磁盘，HTTP 并发度 100；最小实例数为 0、最大实例数为 1，空闲延迟释放 3600 秒，数据库持久化保持单写者。达到保留上限时新会话等待，不因新请求而提前淘汰未到期的空闲沙箱。
 - 每个沙箱保留进程/描述符/单文件/地址空间/CPU 限制，独立宿主监测线程每 0.5 秒采样该 UID 的 RSS 与工作区文件体积，超过 512 MiB / 64 MiB 时终止本轮并等待教师处理。沙箱内 `/tmp` tmpfs 有独立 64 MiB 容量上限。采样保护不等同于独立 cgroup 硬配额；启动检查为课堂和控制服务保留内存/磁盘余量。
 
 ## FC 生命周期与数据
@@ -28,8 +28,8 @@ TEACHER_AGENT_MODE=fc-internal
 ENABLE_TEACHER_CHAT=1
 TEACHER_AGENT_MODEL=deepseek-flash
 TEACHER_AGENT_REASONING_EFFORT=low
-TEACHER_AGENT_MAX_ACTIVE=4
-TEACHER_AGENT_MAX_PER_TEACHER=2
+TEACHER_AGENT_MAX_ACTIVE=30
+TEACHER_AGENT_MAX_PER_TEACHER=5
 DEEPSEEK_API_KEY=<只在 FC 服务端配置，不提交源码>
 ```
 
@@ -41,8 +41,10 @@ DEEPSEEK_API_KEY=<只在 FC 服务端配置，不提交源码>
 - FC 默认推理强度为 `low`，可通过 `TEACHER_AGENT_REASONING_EFFORT=high` 恢复较高推理预算。模型仍为 `deepseek-flash`。
 - Markdown 使用本地打包的 Marked 与 DOMPurify，支持标题、列表、表格、引用、代码块与复制。原始 HTML 作为文本处理，禁止自动加载外部图片及执行脚本。流式渲染每 80 毫秒合并一次，长表格可横向滚动，桌面聊天框可展开。
 - 浏览器依赖固定在 package-lock.json；运行 `npm ci --ignore-scripts` 和 `npm run vendor:teacher-chat` 可重建 vendor 文件，版本、SHA256 和许可证一并保留。
-- 每轮使用独立沙箱，共享只读程序与系统运行库。成功、失败、取消后，生命周期循环处理完再等待 1 秒，清理进程、socket、工作区、监测线程和计时器。内部沙箱准备阶段预算 30 秒，执行阶段重新计算 180 秒截止时间，宿主在进程启动约 185 秒后独立强制终止。旧版错误地把 180 秒准备时间叠加进宿主计时器，本版已修正。控制进程重启后清理新旧专用根目录下合法 attempt 名称的残留，不跟随符号链接。
-- 不保留闲置沙箱池。回收工作区不删除会话历史或 OSS 附件；下一轮根据 session ID 恢复已提交工作区、用户历史、最近六条已提交回复，再注入本轮页面上下文和附件。不同会话的 checkpoint、令牌、工作区互不共享。
+- 同一会话复用实际的 bubblewrap 命名空间、keeper 进程与工作区。每轮结束后停止该 UID 的其他进程（包括另起进程组的子进程）、撤销本轮代理令牌keeper 通过专用控制管道阻塞等待；下轮重新启动 CLI，但复用原沙箱。调度指令只通过未传递给模型进程的 stdin/stdout 管道传输，任务参数由宿主写入只读控制目录；上一轮令牌不能被代理替换为下一轮权限。取消后的未提交工作区从持久化 checkpoint 重新装入。异常资源使用或 keeper 失效时允许提前销毁并从已保存状态恢复。
+- 沙箱从首次分配起最多保留 28800 秒（8 小时），继续聊天不延长截止时间。独立宿主定时器到期回收；“结束会话”接口持久化关闭状态、取消本会话的执行/队列，并同步回收沙箱，重复调用幂等。已结束会话仍可查看历史和下载文件，不能再发送、上传或继续执行；新会话可以使用释放的名额。到期仅回收沙箱，对话本身仍可继续并从 checkpoint 恢复。
+- 单轮仍有 30 秒准备预算、180 秒执行预算和约 185 秒宿主强制终止保护，与 8 小时沙箱寿命分别计算。FC 整体无请求 1 小时后可释放实例，平台重启或故障也可能提前结束沙箱；8 小时是沙箱寿命上限，不是空闲进程保证常驻 8 小时，已提交历史和文件由 OSS 恢复。
+- 新增独立 `teacher_session_lifecycle` 表，保留已有表结构。历史旧会话在再次使用前不占 5 个未结束会话配额；首次继续使用时受配额约束。不同会话的 checkpoint、令牌、工作区互不共享，上下文仍由用户历史、最近六条已提交回复、本轮页面范围和附件组成。
 - 内部 SSE 连接不再把排队时间算入固定 240/300 秒连接预算；客户端断开、授权失效或执行结束仍会关闭连接。运行时限由该 attempt 的独立计时器控制。
 
 ## 打包
@@ -173,3 +175,36 @@ git diff --check
 ```
 
 未运行全量测试；未覆盖长时间压力、大规模用户负载、所有浏览器、真实内存耗尽和持续 185 秒超时。内存/磁盘监测与超时计时器有针对性回归，但采样监测不是每个沙箱的 cgroup 硬隔离。本版仅支持单 FC 实例中的有界并发，横向多实例需要另行迁移持久化与调度设计。
+
+## 会话沙箱复用与 30 路执行（v12，2026-10-26）
+
+- FC `cn-hangzhou / cc_dify_mcp` 使用 16 vCPU / 32 GiB / 10 GiB，HTTP 并发 100，弹性实例上限 1、最小实例 0、空闲延迟释放 3600 秒。大规格与空闲保留会增加资源费用；这里的 30 是单 FC 内部的沙箱执行上限，并非创建 30 个 FC 实例。
+- 最终包 `teacher-chat-internal-v12.zip`：8753 个文件、183457780 bytes，SHA256 `445c41f1e6a562614bf05a3a9483b24901f09d24678348704197f7807ac014e3`。在校验通过的 v11 包中更新最后一个运行时文件，重新通过 ZIP CRC、重复条目、运行时源码一致性及凭据文件排除检查。
+- 30 个真实 bubblewrap 命名空间的受控任务同时存活并完成；完成后保留 30 个沙箱，第二轮 PID 不变，手动结束会话能立即回收。探针使用确定性本地执行程序，不调用模型接口或读取课堂数据，不能等同于 30 个真实模型请求的延迟/吞吐压测。最终修复探针输出 `NO_KEEPER_ZOMBIES` / `PROBE_CLEANUP_OK`，30 个沙箱全部回收且没有 keeper 进程残留。可复用脚本为 `deploy/probe-resident-sandboxes.py`。
+- 真实 DeepSeek 验收创建文件、后续读取均 COMMITTED；完全销毁 FC 实例后文件从 OSS 恢复。新实例连续两轮的宿主进程 ID 均为 70/71/72，绝对过期时间不变。教师页面“结束会话”后显示已结束、禁止发送和附件上传，历史及下载仍可查看；接口重复关闭幂等，后续消息返回 409。
+- 验证脚本最初退出了创建沙箱的线程，触发 bubblewrap 的父线程退出保护，已改为常驻线程池；正式调度本身使用常驻分配线程池。空闲 keeper 使用专用控制管道阻塞等待，避免暂停信号与轮次调度竞态。另发现直接杀死外层 bubblewrap 会遗留由 FC PID 1 接管的僵尸记录，已改为关闭控制管道、等待 keeper 与 namespace init 正常退出，2 秒无响应再强制终止；控制服务设置 Linux subreaper，仅 waitpid 回收本沙箱 UID 下已被本进程收养的僵尸子进程，避免依赖 FC PID 1。
+- 容量统计包含实际保留沙箱及尚未清理的分配任务；持久化过期时间不会在 FC 重启后继续占据已经丢失的沙箱名额。未结束会话仍受每教师每课程 5 个上限约束。
+- 发布应关闭调试终端，选择“终止存量请求，立即销毁实例”，确认实例数为 0 后再启用；等待存量请求模式可能保留调试连接及旧实例，不适合本项目的 OSS 单写者切换。
+- 尝试最小实例 1 时观察到额外驻留实例，未作为最终配置。零弹性配额方案被云端拒绝且后续被自动审批拦截，未生效；采用最大实例 1 + 延迟释放 3600 秒。FC 延时释放上限为 60 分钟，参见 [阿里云官方文档](https://help.aliyun.com/zh/functioncompute/configure-elastic-instance-delayed-release)。8 小时是应用沙箱的绝对寿命上限，平台空闲回收、重启和异常仍可能提前结束进程，持久化历史与文件不受影响。
+
+本轮执行的定向测试（包含迭代期间的子集重跑）：
+
+```bash
+services/teacher-agent/.venv/bin/python -m pytest -q services/teacher-agent/tests/test_teaching.py services/teacher-agent/tests/test_fc_internal.py services/teacher-agent/tests/test_api.py services/teacher-agent/tests/test_service.py
+# 最后一次四文件回归：44 passed
+services/teacher-agent/.venv/bin/python -m pytest -q services/teacher-agent/tests/test_fc_internal.py services/teacher-agent/tests/test_teaching.py
+# 控制管道改造后：29 passed
+services/teacher-agent/.venv/bin/python -m pytest -q services/teacher-agent/tests/test_fc_internal.py
+# 最后一次进程回收修复后：20 passed
+/private/tmp/node-v24.10.0-darwin-arm64/bin/node --check shared/teacher-chat/chat.js
+/private/tmp/node-v24.10.0-darwin-arm64/bin/node --check server.cjs
+/private/tmp/node-v24.10.0-darwin-arm64/bin/node --test tests/teacher-chat-session.test.cjs tests/teacher-agent-gateway.test.cjs tests/teacher-agent-stream.test.cjs
+# 3 passed
+/private/tmp/node-v24.10.0-darwin-arm64/bin/node data/fc-agent-build/resident-acceptance.cjs first
+/private/tmp/node-v24.10.0-darwin-arm64/bin/node data/fc-agent-build/resident-acceptance.cjs second
+/private/tmp/node-v24.10.0-darwin-arm64/bin/node data/fc-agent-build/resident-acceptance.cjs close
+# 实例终端中以 PROBE_COUNT=30 运行临时上传的 resident-probe-next.py，验证隔离、复用和回收。
+git diff --check
+```
+
+未运行全量测试；未覆盖连续 8 小时实时时长、30 路真实模型 API 负载、极限 CPU/内存压力、所有浏览器与跨 FC 实例调度。8 小时回收使用定时器定向测试；512 MiB RSS / 64 MiB 工作区仍为采样保护，不是每个沙箱独立 cgroup 硬配额。
