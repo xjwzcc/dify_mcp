@@ -1,8 +1,10 @@
 const fs=require('node:fs'),path=require('node:path');const root=__dirname;
 let source=fs.readFileSync(path.join(root,'原项目源文件.html'),'utf8');
 const seed=source.slice(source.indexOf('function defaultState(){'),source.indexOf('\nfunction load(){'));
-fs.writeFileSync(path.join(root,'native-seed.cjs'),seed+'\nmodule.exports=defaultState;');
-source=source.replace("var SHARE_BASE = 'https://emenu-ordering-sim.app.workbuddy.host/';","var SHARE_BASE = location.origin + '/customer.html';");
+const tables=(source.match(/^var DEFAULT_TABLES = .*$/m)||[''])[0];
+fs.writeFileSync(path.join(root,'native-seed.cjs'),tables+'\n'+seed+'\nmodule.exports=defaultState;');
+source=source.replace("var SHARE_HOST = 'https://emenu-ordering-sim-v2.app.workbuddy.host/';","var SHARE_HOST = location.origin + '/catering/';");
+source=source.replace("var SHARE_BASE = SHARE_HOST + '?sharecode=R66XD75JYP';   /* 访问需带 sharecode，二维码与订单码自动携带 */","var SHARE_BASE = SHARE_HOST + 'customer.html?s=1';   /* 教学版：顾客端由本服务提供 */");
 source=source.replace(/^initApp\(\);$/m,'/* 启动由教学适配层管理 */');
-source=source.replace('</body>','<script src="/native-bridge.js"></script></body>');
+source=source.replace('</body>','<script src="/catering/native-bridge.js"></script></body>');
 fs.writeFileSync(path.join(root,'public','original.html'),source);

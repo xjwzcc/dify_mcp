@@ -1,3 +1,4 @@
+var DEFAULT_TABLES = ['A01','A02','A03','A04','B01','B02'];
 function defaultState(){
   return {
     seq: 100,
@@ -9,7 +10,9 @@ function defaultState(){
       {id:'d04',cat:'主食',name:'苏式焖肉面',emoji:'🍲',price:28,unit:'',desc:'枫镇大肉，焖煮四小时',specs:null},
       {id:'d05',cat:'饮品',name:'碧螺春茶',emoji:'🍵',price:12,unit:'/位',desc:'苏州洞庭山明前茶',specs:null}
     ],
-    orders: []
+    orders: [],
+    tables: DEFAULT_TABLES.slice(),
+    voucher: {meituan:0.8, dianping:0.85}
   };
 }
 module.exports=defaultState;

@@ -158,6 +158,7 @@
   .kcol h4{font-size:13.5px; padding:4px 6px 10px; display:flex; justify-content:space-between;}
   .kcol h4 span{color:var(--gray); font-weight:400;}
   .kcard{border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-bottom:9px; background:#fff;}
+  .kcard.paidcard{background:#F4FAF5; border-color:#BFE3CB;}
   .kcard .kh{display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;}
   .kcard .kh b{font-size:14.5px;}
   .kcard .tm{color:var(--gray); font-size:11.5px;}
@@ -168,12 +169,54 @@
   .kb1{background:#EAF1FC; color:var(--blue);}
   .kb2{background:#FFF3E0; color:var(--amber);}
   .kb3{background:#E7F6EE; color:var(--green);}
+  /* ===== 模拟收银台（结账支付） ===== */
+  .paygrid{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:14px 0 4px;}
+  .paym{border:2px solid var(--line); background:#fff; border-radius:12px; padding:15px 10px; font-size:15px; font-weight:700;
+    cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:5px; font-family:inherit; color:var(--dark);}
+  .paym .pe{font-size:26px; line-height:1;}
+  .paym small{font-weight:400; color:var(--gray); font-size:11.5px;}
+  .paym:hover{border-color:var(--blue); background:#F5F9FF;}
+  .paym:active{transform:scale(.97);}
+  .paym.wx{border-color:#B7E5B0;} .paym.zfb{border-color:#BBD8F7;} .paym.credit,.paym.debit{border-color:#E3D6C8;}
+  .paym.meituan{border-color:#F5D96B;} .paym.dianping{border-color:#F5C6A0;}
+  .payamt{text-align:center; margin:12px 0 2px;}
+  .payamt .big{font-size:34px; font-weight:800; color:var(--red);}
+  .payinfo{display:flex; justify-content:space-between; font-size:13px; color:var(--gray); padding:5px 4px; border-bottom:1px dashed var(--line);}
+  .payproc,.payok{text-align:center; padding:22px 0 14px;}
+  .spin{width:36px; height:36px; border:4px solid var(--line); border-top-color:var(--blue); border-radius:50%;
+    margin:0 auto 12px; animation:paysp .8s linear infinite;}
+  @keyframes paysp{to{transform:rotate(360deg);}}
+  .payok .big{font-size:44px; line-height:1;}
+  .payok h3{margin:10px 0 4px;}
+  .payhint{background:#FFF7E8; border:1px solid #F3DFAF; color:#8A6A12; border-radius:10px;
+    padding:11px 14px; font-size:13.5px; margin-bottom:12px; cursor:pointer; line-height:1.6;}
+  .paygo{display:block; width:100%; margin-top:9px; border:none; background:#1AAD19; color:#fff;
+    border-radius:8px; padding:11px; font-size:14px; font-weight:700; cursor:pointer; font-family:inherit;}
+  .paygo:active{filter:brightness(.93);}
+  .setrow{display:flex; align-items:center; gap:10px; padding:6px 0; font-size:13.5px; border-bottom:1px dashed var(--line);}
+  .setrow span{flex:1; color:var(--gray);}
+  .setrow .tin{width:90px; text-align:center;}
+  /* 菜单体检 */
+  .cktitle{font-size:15px; margin:16px 0 8px; padding-left:9px; border-left:4px solid var(--red);}
+  .ckrow{display:flex; gap:9px; align-items:flex-start; padding:8px 2px; border-bottom:1px dashed var(--line);}
+  .ckic{flex:none; font-size:15px;}
+  .cktx{font-size:13.5px; line-height:1.6;}
+  .ckad{color:var(--gray); font-size:12px; margin-top:2px;}
+  .ckquad{background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin-bottom:9px;}
+  .ckqh{font-size:13.5px; font-weight:700; display:flex; justify-content:space-between; margin-bottom:7px;}
+  .ckqh span{color:var(--gray); font-weight:400;}
+  .ckchips{display:flex; flex-wrap:wrap; gap:6px; margin-bottom:6px;}
+  .chip{border:1px solid var(--line); background:#F7F8FA; border-radius:12px; padding:3px 10px; font-size:12px;}
+  .chip.none{color:#9AA3AD;}
+  .ckscore{margin-top:14px; text-align:center; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px; font-size:14px;}
+  .ckscore b{font-size:26px; color:var(--red); margin:0 4px;}
   .kb4{background:#EEEEF0; color:var(--gray);}
 
   table.mgmt{width:100%; border-collapse:collapse; background:var(--card); border-radius:10px; overflow:hidden;}
   table.mgmt th,table.mgmt td{padding:9px 12px; border-bottom:1px solid var(--line); text-align:left; font-size:13.5px;}
   table.mgmt th{background:#F2F4F6; font-size:12.5px; color:var(--gray);}
   .priceinput{width:76px; border:1px solid var(--line); border-radius:6px; padding:4px 8px; font-size:13.5px;}
+  .tin{border:1px solid var(--line); border-radius:6px; padding:5px 8px; font-size:13px; font-family:inherit;}
   .soBtn{border:none; border-radius:14px; padding:4px 13px; font-size:12.5px; cursor:pointer;}
   .soOn{background:#FDECEA; color:var(--red);}
   .soOff{background:#E7F6EE; color:var(--green);}
@@ -252,6 +295,7 @@
   .dishBig{width:100%; height:150px; object-fit:cover; border-radius:10px; margin-bottom:10px; display:block;}
   .catrow{display:flex; gap:8px; align-items:center; padding:7px 0; border-bottom:1px dashed var(--line);}
   .catrow input{flex:1; border:1px solid var(--line); border-radius:6px; padding:5px 8px; font-size:13px;}
+  .guestrow{display:flex; justify-content:space-between; align-items:center; padding:7px 2px; border-bottom:1px dashed var(--line); font-size:13.5px; font-weight:700;}
   /* ===== 手机端适配 ===== */
   @media (max-width:860px){
     header{padding:8px 10px; gap:8px;}
@@ -2006,7 +2050,8 @@ var LS_BASE = 'emenu_sim_v1';
 var LS_ACCTS = 'emenu_sim_accts';
 var LS_LOGIN = 'emenu_sim_login';
 
-var TABLES = ['A01','A02','A03','A04','B01','B02'];
+var DEFAULT_TABLES = ['A01','A02','A03','A04','B01','B02'];
+var TABLES = DEFAULT_TABLES.slice();   /* 运行时以 S.tables 为准（桌号管理可增删改） */
 var ACC = '';          /* 当前账号（规范化） */
 var ACC_NAME = '';     /* 显示名（店名） */
 var GUEST_GROUP = '';  /* 扫码顾客端顶部显示的「第 N 组」 */
@@ -2055,7 +2100,9 @@ function defaultState(){
       {id:'d04',cat:'主食',name:'苏式焖肉面',emoji:'🍲',price:28,unit:'',desc:'枫镇大肉，焖煮四小时',specs:null},
       {id:'d05',cat:'饮品',name:'碧螺春茶',emoji:'🍵',price:12,unit:'/位',desc:'苏州洞庭山明前茶',specs:null}
     ],
-    orders: []
+    orders: [],
+    tables: DEFAULT_TABLES.slice(),
+    voucher: {meituan:0.8, dianping:0.85}
   };
 }
 function load(){
@@ -2069,6 +2116,8 @@ function load(){
       s.menu.forEach(function(d){ if(s.cats.indexOf(d.cat)<0) s.cats.push(d.cat); });
       if(!s.cats.length) s.cats = ['热菜'];
     }
+    if(!s.tables || !s.tables.length) s.tables = DEFAULT_TABLES.slice();
+    if(!s.voucher || typeof s.voucher!=='object') s.voucher = {meituan:0.8, dianping:0.85};
     return s;
   }catch(e){ return defaultState(); }
 }
@@ -2083,6 +2132,12 @@ function save(){
   catch(e){ return false; }
 }
 var S = load();
+if(S.tables && S.tables.length) TABLES = S.tables.slice();
+function syncTables(){ S.tables = TABLES.slice(); }
+function ensureTable(t){
+  if(!t) return;
+  if(TABLES.indexOf(t) < 0){ TABLES.push(t); syncTables(); }
+}
 
 /* ================= 通用 ================= */
 var view = 'g';        // g=顾客端 b=商家端
@@ -2184,14 +2239,21 @@ function renderGuest(){
   /* 我的订单 */
   var mine = S.orders.filter(function(o){return o.table===curTable;}).slice(-6).reverse();
   if(mine.length){
+    var hasDue = mine.some(function(o){ return o.status==='done'; });
+    if(hasDue){
+      h += '<div class="payhint">🔔 本桌有菜品已上齐，点下方订单的「去支付」即可结账'
+        + '<span style="color:#9AA3AD;font-weight:400;font-size:11.5px;margin-left:6px;">支持微信 / 支付宝 / 信用卡 / 储蓄卡</span></div>';
+    }
     h += '<div class="myorders"><h3>本桌订单（'+esc(curTable)+'）</h3>';
     mine.forEach(function(o){
-      var stMap = {new:['待制作','b-new'],cooking:['制作中','b-cook'],done:['已出餐','b-done'],paid:['已结账','b-paid']};
+      var stMap = {new:['新下单','b-new'],cooking:['制作中','b-cook'],done:['已出餐 · 待结账','b-done'],paid:['已结账'+(o.payMethod?' · '+(PAY_NAME[o.payMethod]||''):''),'b-paid']};
       var st = stMap[o.status]||['未知','b-paid'];
       h += '<div class="oitem"><div class="head"><b>'+esc(o.no)+'</b>'
         + '<span class="badge '+st[1]+'">'+st[0]+'</span>'
         + '<span style="color:#9AA3AD;font-size:12px;">'+esc(o.timeHM)+'</span></div>'
-        + '<div class="body">'+o.items.map(function(it){ return esc(it.qty)+'× '+esc(it.name)+(it.mods&&it.mods.length?'（'+esc(it.mods.join('、'))+'）':''); }).join('；')+'</div></div>';
+        + '<div class="body">'+o.items.map(function(it){ return esc(it.qty)+'× '+esc(it.name)+(it.mods&&it.mods.length?'（'+esc(it.mods.join('、'))+'）':''); }).join('；')+'</div>'
+        + (o.status==='done' ? '<button class="paygo" onclick="openPayDlg(\''+o.no+'\')">💳 去支付（微信 / 支付宝 / 信用卡 / 储蓄卡）</button>' : '')
+        + '</div>';
     });
     h += '</div>';
   }
@@ -2223,7 +2285,9 @@ function renderGuest(){
           +'<div class="qty"><button onclick="chQty('+idx+',-1)">−</button><span>'+c.qty+'</span><button onclick="chQty('+idx+',1)">＋</button></div></div>';
       });
       if(cart.length){
-        ph += '<input class="notearea" id="orderNote" placeholder="整单备注（如：一位不吃香菜）" value="'+esc(cartNote)+'">'
+        ph += '<div class="guestrow"><span>👤 用餐人数</span>'
+          + '<div class="qty"><button onclick="chGuests(-1)">−</button><span id="guestNum">'+cartGuests+'</span><button onclick="chGuests(1)">＋</button></div></div>'
+          + '<input class="notearea" id="orderNote" placeholder="整单备注（如：一位不吃香菜）" value="'+esc(cartNote)+'">'
           + '<button class="submit" onclick="submitOrder()">提交订单 · ¥'+cartTotal().toFixed(0)+'</button>';
       }
       p.innerHTML = ph;
@@ -2234,6 +2298,13 @@ function renderGuest(){
 function pickTable(t){ curTable=t; render(); }
 function pickCat(c){ curCat=c; render(); }
 var cartNote='';
+var cartGuests=2;
+function chGuests(d){
+  var el=document.getElementById('guestNum');
+  if(el){ var v=parseInt(el.textContent,10); if(!isNaN(v)) cartGuests=v; }
+  cartGuests=Math.min(30, Math.max(1, cartGuests+d));
+  render();
+}
 function toggleCart(){ cartOpen=!cartOpen; render(); }
 function chQty(i,delta){
   var noteEl = document.getElementById('orderNote');
@@ -2319,8 +2390,8 @@ function submitOrder(){
     var price = d.specPrice && c.spec && d.specPrice[c.spec]!=null ? d.specPrice[c.spec] : d.price;
     return {name:(d.name+(c.spec?'（'+c.spec+'）':'')), price:price, qty:c.qty, mods:c.mods.slice(), dishId:c.dishId};
   });
-  S.orders.push({no:no, table:curTable, items:items, orderNote:cartNote, status:'new', ts:Date.now(), timeHM:nowHM()});
-  cart=[]; cartNote=''; cartOpen=false;
+  S.orders.push({no:no, table:curTable, items:items, orderNote:cartNote, guests:cartGuests, status:'new', ts:Date.now(), timeHM:nowHM()});
+  cart=[]; cartNote=''; cartGuests=2; cartOpen=false;
   save(); render();
   showOrderCode(no);
 }
@@ -2333,27 +2404,33 @@ function renderBoss(){
     +'<span class="subtab'+(subView==='kds'?' sel':'')+'" onclick="subView=\'kds\';render()">后厨 KDS</span>'
     +'<span class="subtab'+(subView==='menu'?' sel':'')+'" onclick="subView=\'menu\';render()">菜单管理</span>'
     +'<span class="subtab'+(subView==='stat'?' sel':'')+'" onclick="subView=\'stat\';render()">营业统计</span>'
+    +'<span class="subtab'+(subView==='tables'?' sel':'')+'" onclick="subView=\'tables\';render()">桌号管理</span>'
+    +'<span class="subtab'+(subView==='check'?' sel':'')+'" onclick="subView=\'check\';render()">📋 菜单体检</span>'
+    +'<span class="subtab'+(subView==='insight'?' sel':'')+'" onclick="subView=\'insight\';render()">📊 数据决策</span>'
     +'<span class="subtab'+(subView==='code'?' sel':'')+'" onclick="subView=\'code\';render()">点单二维码</span>'
     +'</div>';
 
   if(subView==='kds'){
     h+='<div class="mgmtTools"><button class="addish" onclick="openImportOrder()">📥 收入扫码订单</button>'
       +'<span style="color:#9AA3AD;font-size:12px;">同学在手机上扫桌码下单后，会拿到一段订单码，粘到这里即可</span></div>';
-    var cols=[['new','待制作'],['cooking','制作中'],['done','已出餐（待结账）']];
+    var cols=[['new','新下单'],['cooking','制作中'],['done','已出餐 / 结账']];
     h+='<div class="kds">';
     cols.forEach(function(cf){
-      var list=S.orders.filter(function(o){return o.status===cf[0];});
+      var list=S.orders.filter(function(o){return o.status===cf[0] || (cf[0]==='done' && o.status==='paid');});
       h+='<div class="kcol"><h4>'+cf[1]+'<span>'+list.length+' 单</span></h4>';
       if(!list.length) h+='<div class="empty">暂无订单</div>';
       list.forEach(function(o){
-        h+='<div class="kcard"><div class="kh"><b>'+esc(o.no)+'</b><span class="tm">'+minsAgo(o.ts)+' 分钟前</span></div>';
+        var tag = o.status==='paid'
+          ? '<span class="tm" style="color:#1E7A3C;font-weight:700;">已出餐（已结账'+(o.payMethod?' · '+(PAY_NAME[o.payMethod]||''):'')+'）</span>'
+          : '<span class="tm" style="color:#D98A15;font-weight:700;">已出餐（待结账）</span>';
+        h+='<div class="kcard'+(o.status==='paid'?' paidcard':'')+'"><div class="kh"><b>'+esc(o.no)+'</b>'+tag+'<span class="tm">'+minsAgo(o.ts)+' 分钟前</span></div>';
         o.items.forEach(function(it){
           h+='<div class="li">'+it.qty+' × '+esc(it.name)+(it.mods&&it.mods.length?' <small>'+esc(it.mods.join('、'))+'</small>':'')+'</div>';
         });
         if(o.orderNote) h+='<div class="note">备注：'+esc(o.orderNote)+'</div>';
         if(o.status==='new') h+='<button class="kbtn kb1" onclick="setSt(\''+o.no+'\',\'cooking\')">开始制作</button>';
         if(o.status==='cooking') h+='<button class="kbtn kb2" onclick="setSt(\''+o.no+'\',\'done\')">出餐完成</button>';
-        if(o.status==='done') h+='<button class="kbtn kb3" onclick="setSt(\''+o.no+'\',\'paid\')">顾客结账 · 收款</button>';
+        if(o.status==='done') h+='<button class="kbtn kb3" onclick="openPayDlg(\''+o.no+'\')">顾客结账 · 收款</button>';
         h+='</div>';
       });
       h+='</div>';
@@ -2375,7 +2452,8 @@ function renderBoss(){
         +'<td data-th="图"><div class="tpic">'+(d.img?'<img src="'+d.img+'" alt="">':d.emoji)+'</div></td>'
         +'<td data-th="菜品"><b>'+esc(d.name)+'</b><div style="color:var(--gray);font-size:11.5px;line-height:1.5;">'+esc(d.desc||'（暂无描述）')+'</div></td>'
         +'<td data-th="分类">'+esc(d.cat)+'</td>'
-        +'<td data-th="价格"><input class="priceinput" type="number" min="0" value="'+d.price+'" onchange="setPrice(\''+d.id+'\',this.value)"></td>'
+        +'<td data-th="价格"><input class="priceinput" type="number" min="0" value="'+d.price+'" onchange="setPrice(\''+d.id+'\',this.value)">'
+          +(d.cost>0?'<div style="color:var(--gray);font-size:11px;margin-top:3px;">成本 ¥'+d.cost+' · 毛利 '+Math.round((d.price-d.cost)/d.price*100)+'%</div>':'<div style="color:#C3CAD2;font-size:11px;margin-top:3px;">未填成本</div>')+'</td>'
         +'<td data-th="规格">'+(d.specs? d.specs.map(function(s){return esc(s.n);}).join(' / ') : '—')+'</td>'
         +'<td data-th="状态">'+(d.soldOut?'<span style="color:var(--red);">已沽清</span>':'在售')+'</td>'
         +'<td data-th="操作"><button class="mini" onclick="openDishDlg(\''+d.id+'\')">编辑</button> '
@@ -2415,21 +2493,145 @@ function renderBoss(){
       +'</div>';
   }
 
+  /* ===== 桌号管理 ===== */
+  if(subView==='tables'){
+    h+='<div class="mgmtTools"><span style="color:#9AA3AD;font-size:12px;">桌号显示在顾客点餐端顶部与点单二维码里，改动即时生效；最多 12 个字符，如 A01、B12、包间1</span></div>';
+    h+='<table class="mgmt"><thead><tr><th>桌号</th><th>历史订单</th><th>操作</th></tr></thead><tbody>';
+    if(!TABLES.length) h+='<tr><td colspan="3" class="empty">还没有桌号——在下方添加</td></tr>';
+    TABLES.forEach(function(t,i){
+      var n=S.orders.filter(function(o){return o.table===t;}).length;
+      h+='<tr><td data-th="桌号"><input class="tin" id="tt'+i+'" value="'+esc(t)+'" style="width:120px;"></td>'
+        +'<td data-th="历史订单">'+n+' 单</td>'
+        +'<td data-th="操作"><button class="mini" onclick="tableRen('+i+')">改名</button> '
+        +'<button class="mini del" onclick="tableDel('+i+')">删除</button></td></tr>';
+    });
+    h+='</tbody></table>';
+    h+='<div class="mgmtTools" style="margin-top:14px;">'
+      +'<input class="tin" id="newTable" placeholder="新桌号，如 B03" style="width:160px;" onkeydown="if(event.key===\'Enter\')tableAdd()">'
+      +'<button class="addish" onclick="tableAdd()">＋ 新增桌号</button>'
+      +'<button class="mini" onclick="tableReset()">恢复默认桌号</button></div>';
+  }
+
+  /* ===== 菜单体检 ===== */
+  if(subView==='check'){
+    h+=buildCheck();
+  }
+
+  /* ===== 数据决策 ===== */
+  if(subView==='insight'){
+    h+=buildInsight();
+  }
+
   if(subView==='stat'){
     var paid=S.orders.filter(function(o){return o.status==='paid';});
     var unpaid=S.orders.filter(function(o){return o.status!=='paid';});
-    var rev=0; paid.forEach(function(o){ o.items.forEach(function(it){ rev+=it.price*it.qty; }); });
+    var rev=0, giveaway=0;
+    paid.forEach(function(o){
+      var a=0; o.items.forEach(function(it){ a+=it.price*it.qty; });
+      var s=(o.settle!=null)?o.settle:a;
+      rev+=s; giveaway+=(a-s);
+    });
     var unrev=0; unpaid.forEach(function(o){ o.items.forEach(function(it){ unrev+=it.price*it.qty; }); });
     var cnt=paid.length||1;
+    var guests=0; S.orders.forEach(function(o){ guests+=(o.guests||0); });
     h+='<div class="statgrid">'
-      +'<div class="stat redv"><div class="v">¥'+rev.toFixed(0)+'</div>已结账营业额</div>'
+      +'<div class="stat redv"><div class="v">¥'+rev.toFixed(0)+'</div>已结账营业额（按结算价）</div>'
       +'<div class="stat"><div class="v">¥'+unrev.toFixed(0)+'</div>未结账（在店）</div>'
       +'<div class="stat"><div class="v">'+S.orders.length+'</div>总订单数</div>'
       +'<div class="stat"><div class="v">¥'+(rev/cnt).toFixed(0)+'</div>已结账客单价</div>'
+      +'<div class="stat"><div class="v">'+guests+'</div>客流（人）</div>'
+      +'<div class="stat"><div class="v">'+(guests?(rev/Math.max(1,guests)).toFixed(0):'—')+'</div>人均消费</div>'
+      +'<div class="stat"><div class="v">'+(S.orders.length/Math.max(1,TABLES.length)).toFixed(1)+'</div>平均翻台（次/桌）</div>'
+      +'<div class="stat"><div class="v" style="color:var(--amber);">¥'+giveaway.toFixed(0)+'</div>团购让利（券后差额）</div>'
       +'</div>';
+    /* 分类销售统计（消费结构） */
+    var catMp={};
+    S.orders.forEach(function(o){ o.items.forEach(function(it){
+      var d=dishById(it.dishId); var c=(d&&d.cat)?d.cat:'其他';
+      if(!catMp[c]) catMp[c]={qty:0,amt:0};
+      catMp[c].qty+=it.qty; catMp[c].amt+=it.price*it.qty;
+    }); });
+    var catArr=Object.keys(catMp).map(function(k){return [k,catMp[k].qty,catMp[k].amt];}).sort(function(a,b){return b[2]-a[2];});
+    var catSum=catArr.reduce(function(s,x){return s+x[2];},0)||1;
+    h+='<div class="tops"><h4>分类销售统计（消费结构 · 看菜单结构是否合理）</h4>';
+    if(!catArr.length) h+='<div class="empty">还没有订单数据</div>';
+    catArr.forEach(function(c){
+      h+='<div class="trow"><span class="rank">·</span>'+esc(c[0])+'（'+c[1]+' 份）'
+        +'<span class="bar" style="width:'+Math.round(c[2]/catSum*220)+'px;"></span>'
+        +'<span class="qty2">¥'+c[2].toFixed(0)+' · 占 '+Math.round(c[2]/catSum*100)+'%</span></div>';
+    });
+    h+='</div>';
+    /* 时段销售分析 */
+    var hrKeys=[], hrMp={};
+    S.orders.forEach(function(o){
+      var hr=(o.timeHM&&/^\d{2}:/.test(o.timeHM))? o.timeHM.slice(0,2)+':00' : '其他';
+      if(!hrMp[hr]){ hrMp[hr]={n:0,amt:0}; hrKeys.push(hr); }
+      var a=0; o.items.forEach(function(it){ a+=it.price*it.qty; });
+      hrMp[hr].n++; hrMp[hr].amt+=a;
+    });
+    hrKeys.sort();
+    var hrMax=0; hrKeys.forEach(function(k){ if(hrMp[k].n>hrMax) hrMax=hrMp[k].n; }); hrMax=hrMax||1;
+    if(hrKeys.length){
+      h+='<div class="tops"><h4>时段销售分析（高峰在几点 · 排班与备货依据）</h4>';
+      hrKeys.forEach(function(k){
+        h+='<div class="trow"><span class="rank" style="width:auto;font-size:12px;">'+esc(k)+'</span>'+hrMp[k].n+' 单'
+          +'<span class="bar" style="width:'+Math.round(hrMp[k].n/hrMax*220)+'px;"></span>'
+          +'<span class="qty2">¥'+hrMp[k].amt.toFixed(0)+'</span></div>';
+      });
+      h+='</div>';
+    }
+    /* 桌台业绩 */
+    var tbMp={};
+    S.orders.forEach(function(o){
+      if(!tbMp[o.table]) tbMp[o.table]={n:0,amt:0,g:0};
+      var a=0; o.items.forEach(function(it){ a+=it.price*it.qty; });
+      tbMp[o.table].n++; tbMp[o.table].amt+=a; tbMp[o.table].g+=(o.guests||0);
+    });
+    var tbArr=Object.keys(tbMp).map(function(k){return [k,tbMp[k].n,tbMp[k].amt,tbMp[k].g];}).sort(function(a,b){return b[2]-a[2];});
+    if(tbArr.length){
+      h+='<div class="tops"><h4>桌台业绩（哪张桌最赚钱 · 好位置的依据）</h4>';
+      tbArr.slice(0,8).forEach(function(t){
+        h+='<div class="trow"><span class="rank">·</span>'+esc(t[0])+'（'+t[1]+' 单'+(t[3]?' · '+t[3]+' 人':'')+'）'
+          +'<span class="bar" style="width:'+Math.round((tbArr[0][2]?t[2]/tbArr[0][2]:0)*220)+'px;"></span>'
+          +'<span class="qty2">¥'+t[2].toFixed(0)+'</span></div>';
+      });
+      h+='</div>';
+    }
+    /* 支付方式统计 */
+    var pmMp={};
+    S.orders.forEach(function(o){ if(o.status==='paid'){
+      var k=o.payMethod||'未记录';
+      if(!pmMp[k]) pmMp[k]={n:0,amt:0,gv:0};
+      var a=0; o.items.forEach(function(it){ a+=it.price*it.qty; });
+      var s=(o.settle!=null)?o.settle:a;
+      pmMp[k].n++; pmMp[k].amt+=s; pmMp[k].gv+=(a-s);
+    } });
+    var pmArr=Object.keys(pmMp).map(function(k){return [k,pmMp[k].n,pmMp[k].amt,pmMp[k].gv];}).sort(function(a,b){return b[2]-a[2];});
+    var pmSum=pmArr.reduce(function(s,x){return s+x[2];},0)||1;
+    if(pmArr.length){
+      h+='<div class="tops"><h4>支付方式统计（客人怎么付的钱 · 收银排班与对账依据）</h4>';
+      pmArr.forEach(function(p){
+        var nm=(PAY_NAME[p[0]])||p[0];
+        h+='<div class="trow"><span class="rank">·</span>'+esc(nm)+'（'+p[1]+' 单）'
+          +'<span class="bar" style="width:'+Math.round(p[2]/pmSum*220)+'px;"></span>'
+          +'<span class="qty2">¥'+p[2].toFixed(0)+' · 占 '+Math.round(p[2]/pmSum*100)+'%'
+          +(p[3]>0?' <span style="color:var(--amber);font-size:11px;">让利¥'+p[3].toFixed(0)+'</span>':'')
+          +'</span></div>';
+      });
+      h+='</div>';
+      /* 团购结算设置 */
+      if(!S.voucher) S.voucher={meituan:0.8, dianping:0.85};
+      h+='<div class="tops"><h4>团购结算设置（核销按券后价入账 · 团购让利拉低毛利）</h4>'
+        +'<div class="setrow"><span>美团折扣</span><input class="tin" id="gvMt" type="number" min="0.3" max="1" step="0.05" value="'+S.voucher.meituan+'"></div>'
+        +'<div class="setrow"><span>大众点评折扣</span><input class="tin" id="gvDp" type="number" min="0.3" max="1" step="0.05" value="'+S.voucher.dianping+'"></div>'
+        +'<div style="color:#9AA3AD;font-size:12px;margin-top:8px;line-height:1.7;">例：门市价 100 元的套餐，美团 8 折核销后营业额记 80 元，差额 20 元计入「团购让利」——销量高、毛利低，就是团购促销的典型代价。</div>'
+        +'<div class="resetrow"><button class="mini" onclick="saveVoucher()">保存折扣设置</button></div></div>';
+    }
     /* 畅销榜 */
-    var mp={};
-    S.orders.forEach(function(o){ o.items.forEach(function(it){ var k=it.name.split('（')[0]; mp[k]=(mp[k]||0)+it.qty; }); });
+    var mp={}, mAmt={};
+    S.orders.forEach(function(o){ o.items.forEach(function(it){
+      var k=it.name.split('（')[0]; mp[k]=(mp[k]||0)+it.qty; mAmt[k]=(mAmt[k]||0)+it.price*it.qty;
+    }); });
     var tops=Object.keys(mp).map(function(k){return [k,mp[k]];}).sort(function(a,b){return b[1]-a[1];}).slice(0,5);
     var maxq = tops.length? tops[0][1] : 1;
     h+='<div class="tops"><h4>畅销菜 TOP5（点餐数据沉淀 → 菜单工程依据）</h4>';
@@ -2439,13 +2641,39 @@ function renderBoss(){
         +'<span class="bar" style="width:'+Math.round(t[1]/maxq*220)+'px;"></span><span class="qty2">'+t[1]+' 份</span></div>';
     });
     h+='</div>';
+    /* 销售额贡献榜 */
+    var topsAmt=Object.keys(mAmt).map(function(k){return [k,mAmt[k]];}).sort(function(a,b){return b[1]-a[1];}).slice(0,5);
+    var maxAmt = topsAmt.length? topsAmt[0][1] : 1;
+    h+='<div class="tops"><h4>销售额贡献 TOP5（卖得多 ≠ 赚得多 · 毛利分析的入口）</h4>';
+    if(!topsAmt.length) h+='<div class="empty">还没有订单数据</div>';
+    topsAmt.forEach(function(t,i){
+      h+='<div class="trow"><span class="rank">'+(i+1)+'</span>'+esc(t[0])
+        +'<span class="bar" style="width:'+Math.round(t[1]/maxAmt*220)+'px;"></span><span class="qty2">¥'+t[1].toFixed(0)+'</span></div>';
+    });
+    h+='</div>';
+    /* 滞销预警（对照菜单全量找滞销菜） */
+    var soldById={};
+    S.orders.forEach(function(o){ o.items.forEach(function(it){ if(it.dishId) soldById[it.dishId]=(soldById[it.dishId]||0)+it.qty; }); });
+    var lows=S.menu.map(function(d){ return {n:d.name, q:soldById[d.id]||0}; })
+      .sort(function(a,b){ return a.q-b.q; }).slice(0,5);
+    var lowMax=lows.length? Math.max.apply(null, lows.map(function(x){return x.q;})) : 1; lowMax=lowMax||1;
+    h+='<div class="tops"><h4>滞销菜预警（点单量最低 · 菜单优化与淘汰决策）</h4>';
+    if(!S.menu.length) h+='<div class="empty">菜单是空的</div>';
+    lows.forEach(function(t){
+      h+='<div class="trow"><span class="rank">·</span>'+esc(t.n)
+        +(t.q===0?' <span style="color:var(--red);font-size:11.5px;font-weight:700;">从未被点过</span>':'')
+        +'<span class="bar" style="width:'+Math.round(t.q/lowMax*220)+'px;"></span><span class="qty2">'+t.q+' 份</span></div>';
+    });
+    h+='</div>';
     /* 流水 */
     h+='<div class="flow"><table><thead><tr><th>订单号</th><th>桌号</th><th>下单时间</th><th>金额</th><th>状态</th></tr></thead><tbody>';
     if(!S.orders.length) h+='<tr><td colspan="5" class="empty">暂无订单</td></tr>';
     S.orders.slice().reverse().slice(0,15).forEach(function(o){
       var amt=0; o.items.forEach(function(it){amt+=it.price*it.qty;});
-      var stMap={new:'待制作',cooking:'制作中',done:'已出餐',paid:'已结账'};
-      h+='<tr><td data-th="订单号">'+esc(o.no)+'</td><td data-th="桌号">'+esc(o.table)+'</td><td data-th="时间">'+esc(o.timeHM)+'</td><td data-th="金额">¥'+amt.toFixed(0)+'</td><td data-th="状态">'+stMap[o.status]+'</td></tr>';
+      var stMap={new:'新下单',cooking:'制作中',done:'已出餐',paid:'已结账'};
+      var stTxt=stMap[o.status]+(o.status==='paid'&&o.payMethod?(' · '+(PAY_NAME[o.payMethod]||o.payMethod)):'');
+      var showAmt = (o.status==='paid' && o.settle!=null && o.settle<amt) ? o.settle.toFixed(0)+'（券后）' : amt.toFixed(0);
+      h+='<tr><td data-th="订单号">'+esc(o.no)+'</td><td data-th="桌号">'+esc(o.table)+'</td><td data-th="时间">'+esc(o.timeHM)+'</td><td data-th="金额">¥'+showAmt+'</td><td data-th="状态">'+stTxt+'</td></tr>';
     });
     h+='</tbody></table></div>';
     h+='<input type="file" id="impFile" accept=".json,application/json" style="display:none" onchange="importData(event)">';
@@ -2462,6 +2690,302 @@ function setSt(no,st){
   S.orders.forEach(function(o){ if(o.no===no) o.status=st; });
   save(); render();
 }
+
+/* ================= 模拟收银台：结账支付 ================= */
+var PAY_METHODS = [
+  {k:'wx',     n:'微信支付', e:'💬', d:'扫码 / 付款码'},
+  {k:'zfb',    n:'支付宝',   e:'🅰️', d:'扫码 / 花呗'},
+  {k:'credit', n:'信用卡',   e:'💳', d:'插卡 / 挥卡'},
+  {k:'debit',  n:'储蓄卡',   e:'🏦', d:'插卡 / 密码'},
+  {k:'meituan',n:'美团团购', e:'🟡', d:'团购券核销'},
+  {k:'dianping',n:'大众点评团购', e:'🟠', d:'团购券核销'}
+];
+var PAY_NAME = {wx:'微信支付', zfb:'支付宝', credit:'信用卡', debit:'储蓄卡', meituan:'美团团购', dianping:'大众点评团购'};
+var payDlg = null;
+function orderAmt(o){ var a=0; o.items.forEach(function(it){ a+=it.price*it.qty; }); return a; }
+function openPayDlg(no){
+  var o=null; S.orders.forEach(function(x){ if(x.no===no) o=x; });
+  if(!o || o.status!=='done'){ uiAlert('提示','该订单状态已变化，请刷新后再试'); render(); return; }
+  payDlg = { no:no, step:'pick', method:null };
+  renderPayDlg();
+}
+function payBody(){
+  var m=document.getElementById('payMask');
+  if(!m){
+    m=document.createElement('div'); m.className='mask'; m.id='payMask';
+    m.innerHTML='<div class="dlg" id="payBody"></div>';
+    document.body.appendChild(m);
+  }
+  m.className='mask show';
+}
+function closePayDlg(){
+  var m=document.getElementById('payMask'); if(m) m.className='mask';
+  payDlg=null; render();
+}
+function renderPayDlg(){
+  if(!payDlg) return;
+  payBody();
+  var o=null; S.orders.forEach(function(x){ if(x.no===payDlg.no) o=x; });
+  if(!o){ closePayDlg(); return; }
+  var amt=orderAmt(o);
+  var h='';
+  if(payDlg.step==='pick'){
+    h+='<h3>顾客结账 · 模拟收银台</h3>'
+      +'<div class="sub">由客人选择支付方式完成付款（教学模拟，不产生真实扣款）</div>'
+      +'<div class="payinfo"><span>订单号</span><b>'+esc(o.no)+'</b></div>'
+      +'<div class="payinfo"><span>桌号 / 菜品</span><b>'+esc(o.table)+' 桌 · '
+        +o.items.reduce(function(s,it){return s+it.qty;},0)+' 件</b></div>'
+      +'<div class="payamt"><div class="big">¥'+amt.toFixed(0)+'</div><span style="color:var(--gray);font-size:12.5px;">应付金额</span></div>'
+      +'<div class="paygrid">';
+    PAY_METHODS.forEach(function(p){
+      h+='<button class="paym '+p.k+'" onclick="pickPay(\''+p.k+'\')"><span class="pe">'+p.e+'</span>'+p.n+'<small>'+p.d+'</small></button>';
+    });
+    h+='</div>';
+    h+='<div class="dlgbtns"><button class="canc" onclick="closePayDlg()">取消（客人尚未付款）</button></div>';
+  } else if(payDlg.step==='proc'){
+    h+='<h3>正在支付…</h3>'
+      +'<div class="payproc"><div class="spin"></div>'
+      +'<div style="font-size:14px;">正在连接 <b>'+(PAY_NAME[payDlg.method]||'')+'</b>，请客人确认…</div>'
+      +'<div style="color:var(--gray);font-size:12px;margin-top:8px;">教学模拟 · 不产生真实扣款</div></div>';
+  } else if(payDlg.step==='done'){
+    var settle=(o.settle!=null)?o.settle:amt;
+    h+='<div class="payok"><div class="big">✅</div>'
+      +'<h3>支付成功</h3>'
+      +'<div style="font-size:14px;"><b>'+(PAY_NAME[payDlg.method]||'')+'</b> · '+esc(o.table)+' 桌</div>'
+      +'<div style="font-size:14px;margin-top:4px;">'+(settle<amt
+        ? ('门市 ¥'+amt.toFixed(0)+' → <b>券后结算 ¥'+settle.toFixed(0)+'</b>')
+        : ('¥'+amt.toFixed(0)))
+      +'</div>'
+      +'<div style="color:var(--gray);font-size:12px;margin-top:8px;">已按结算价计入营业统计，收银台即将关闭…</div></div>';
+  }
+  document.getElementById('payBody').innerHTML=h;
+}
+function pickPay(k){
+  if(!payDlg || payDlg.step!=='pick') return;
+  payDlg.method=k; payDlg.step='proc'; renderPayDlg();
+  var no=payDlg.no, mk=k;
+  setTimeout(function(){
+    S.orders.forEach(function(o){ if(o.no===no){
+      o.status='paid'; o.payMethod=mk; o.payTs=Date.now();
+      var a=orderAmt(o); var s=a;
+      if(mk==='meituan'||mk==='dianping'){
+        var f=(S.voucher && S.voucher[mk]) || 0.8;
+        f=Math.min(1, Math.max(0.3, parseFloat(f)||0.8));
+        s=Math.round(a*f*10)/10;
+      }
+      o.settle=s;
+    } });
+    if(!save()){ uiAlert('保存失败','本机浏览器存储空间不足，支付结果未保存。'); }
+    payDlg={ no:no, step:'done', method:mk };
+    renderPayDlg();
+    setTimeout(function(){ if(payDlg && payDlg.no===no && payDlg.step==='done') closePayDlg(); }, 1400);
+  }, 1200);
+}
+function payName(k){ return PAY_NAME[k] || ''; }
+function saveVoucher(){
+  var mt=parseFloat(val('gvMt')), dp=parseFloat(val('gvDp'));
+  if(isNaN(mt)||isNaN(dp)){ uiAlert('提示','折扣必须是数字，如 0.8'); return; }
+  mt=Math.min(1, Math.max(0.3, mt)); dp=Math.min(1, Math.max(0.3, dp));
+  S.voucher={meituan:Math.round(mt*100)/100, dianping:Math.round(dp*100)/100};
+  save(); render();
+}
+
+/* ================= 数据决策：多维分析 + 决策建议 ================= */
+var insX='时段', insM='营业额';
+var INS_TEXT='';
+function setIns(){ insX=val('insX'); insM=val('insM'); render(); }
+function orderGross(o){ var a=0; o.items.forEach(function(it){ a+=it.price*it.qty; }); return a; }
+function oHour(o){ return (o.timeHM&&/^\d{2}:/.test(o.timeHM))? o.timeHM.slice(0,2)+':00' : '未知'; }
+
+function insAggregate(){
+  var rows={};
+  function add(k,a,n,q){ var r=rows[k]||(rows[k]={amt:0,n:0,qty:0}); r.amt+=a; r.n+=n; r.qty+=q; }
+  S.orders.forEach(function(o){
+    var a=orderGross(o), q=o.items.reduce(function(s,it){return s+it.qty;},0);
+    if(insX==='时段') add(oHour(o),a,1,q);
+    else if(insX==='桌台') add(String(o.table||'未知'),a,1,q);
+    else if(insX==='支付方式') add(o.status==='paid'? (PAY_NAME[o.payMethod]||'未记录') : '未结账', a,1,q);
+    else if(insX==='分类') o.items.forEach(function(it){ var d=dishById(it.dishId); add((d&&d.cat)||'其他', it.price*it.qty, 0, it.qty); });
+    else { /* 菜品TOP */ o.items.forEach(function(it){ add(it.name.split('（')[0], it.price*it.qty, 0, it.qty); }); }
+  });
+  var arr=Object.keys(rows).map(function(k){ return [k, rows[k].amt, rows[k].n, rows[k].qty]; });
+  if(insX==='时段') arr.sort(function(a,b){ return a[0]<b[0]?-1:1; });
+  else arr.sort(function(a,b){
+    var v = insM==='单数'?b[2]-a[2] : insM==='销量'?b[3]-a[3] : b[1]-a[1];
+    return v;
+  });
+  if(insX==='菜品TOP') arr=arr.slice(0,8);
+  return arr;
+}
+function insDaily(){
+  var days={};
+  S.orders.forEach(function(o){
+    var d=new Date(o.ts||Date.now());
+    var k=d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);
+    var r=days[k]||(days[k]={amt:0,n:0,g:0});
+    r.amt+=orderGross(o); r.n++; r.g+=(o.guests||0);
+  });
+  return Object.keys(days).sort().map(function(k){ return [k, days[k].amt, days[k].n, days[k].g]; });
+}
+function insSuggestions(){
+  var out=[], orders=S.orders;
+  if(!orders.length){ out.push(['📦','暂无数据','先让顾客产生几笔订单，决策建议会基于真实数据生成。','——']); return out; }
+  var total=orders.reduce(function(s,o){return s+orderGross(o);},0);
+  /* 1 高峰集中度 */
+  var hrMp={};
+  orders.forEach(function(o){ var k=oHour(o); hrMp[k]=(hrMp[k]||0)+orderGross(o); });
+  var hrArr=Object.keys(hrMp).map(function(k){return [k,hrMp[k]];}).sort(function(a,b){return b[1]-a[1];});
+  if(hrArr.length && total>0 && hrArr[0][1]/total>0.4){
+    out.push(['⏰','高峰过于集中：'+hrArr[0][0]+' 时段占全天营业额 '+Math.round(hrArr[0][1]/total*100)+'%',
+      '高峰前 30 分钟加派传菜/收银人手；低峰时段用限时优惠（如下午茶）削峰填谷。','考点：时段销售分析 → 排班与备货决策']);
+  }
+  /* 2 团购让利率 */
+  var rev=0, gv=0;
+  orders.forEach(function(o){ if(o.status==='paid'){ var a=orderGross(o); var s=(o.settle!=null)?o.settle:a; rev+=s; gv+=(a-s); } });
+  if(rev>0 && gv/rev>0.1){
+    out.push(['🟡','团购让利率偏高：让利 ¥'+gv.toFixed(0)+'，占结算营业额 '+Math.round(gv/rev*100)+'%',
+      '评估团购的定位：是引流款（可接受）还是常态（侵蚀毛利）。可降低折扣或限制团购菜品范围。','考点：结算口径 vs 门市口径 → 毛利保护']);
+  }
+  /* 3 滞销占比 */
+  if(S.menu.length){
+    var soldById={};
+    orders.forEach(function(o){ o.items.forEach(function(it){ if(it.dishId) soldById[it.dishId]=(soldById[it.dishId]||0)+it.qty; }); });
+    var zero=S.menu.filter(function(d){return !soldById[d.id];}).length;
+    if(zero/S.menu.length>0.25){
+      out.push(['🐕','菜单滞销率偏高：'+zero+'/'+S.menu.length+' 道菜从未被点过（'+Math.round(zero/S.menu.length*100)+'%）',
+        '菜单瘦身：淘汰或改良滞销菜，减少备货损耗，聚焦爆款。','考点：滞销预警 → 菜单优化与淘汰决策']);
+    }
+  }
+  /* 4 弱势分类 */
+  var catMp={};
+  orders.forEach(function(o){ o.items.forEach(function(it){ var d=dishById(it.dishId); var c=(d&&d.cat)||'其他'; catMp[c]=(catMp[c]||0)+it.price*it.qty; }); });
+  var catArr=Object.keys(catMp).map(function(k){return [k,catMp[k]];}).sort(function(a,b){return a[1]-b[1];});
+  if(catArr.length>=3 && total>0 && catArr[0][1]/total<0.05){
+    out.push(['📉','弱势分类：「'+catArr[0][0]+'」金额占比仅 '+Math.round(catArr[0][1]/total*100)+'%',
+      '要么精简该分类（减少备货与损耗），要么检查定价与图片描述是否影响下单。','考点：分类销售统计 → 菜单结构调整']);
+  }
+  /* 5 支付集中 */
+  var pmMp={};
+  orders.forEach(function(o){ if(o.status==='paid'){ var k=o.payMethod||'未记录'; pmMp[k]=(pmMp[k]||0)+((o.settle!=null)?o.settle:orderGross(o)); } });
+  var pmArr=Object.keys(pmMp).map(function(k){return [k,pmMp[k]];}).sort(function(a,b){return b[1]-a[1];});
+  if(pmArr.length && rev>0 && pmArr[0][1]/rev>0.7){
+    out.push(['💳','支付方式集中：「'+(PAY_NAME[pmArr[0][0]]||pmArr[0][0])+'」占 '+Math.round(pmArr[0][1]/rev*100)+'%',
+      '单一渠道依赖便于对账但要防渠道波动；可设计差异化优惠引导多元支付。','考点：支付方式统计 → 收银管理']);
+  }
+  /* 6 未结账 */
+  var unrev=orders.filter(function(o){return o.status!=='paid';}).reduce(function(s,o){return s+orderGross(o);},0);
+  if(unrev>0){
+    out.push(['🔔','在店未结账 ¥'+unrev.toFixed(0)+'（'+orders.filter(function(o){return o.status!=='paid';}).length+' 单）',
+      '出餐后及时提醒结账（顾客端已有「去支付」入口），避免跑单与营业额虚低。','考点：订单状态流转 → 收银管理']);
+  }
+  /* 7 毛利诊断 */
+  var withCost=S.menu.filter(function(d){return d.cost>0;});
+  if(withCost.length>=3){
+    var rows=S.menu.map(function(d){
+      var q=0; orders.forEach(function(o){ o.items.forEach(function(it){ if(it.dishId===d.id) q+=it.qty; }); });
+      var mr=(d.price>0)?(d.price-d.cost)/d.price:0;
+      return {n:d.name,q:q,mr:mr};
+    });
+    var puzzles=rows.filter(function(r){return r.q>0&&r.mr<0.5;}).sort(function(a,b){return b.q-a.q;}).slice(0,3);
+    if(puzzles.length){
+      out.push(['❓','旺销低毛利菜品：'+puzzles.map(function(r){return r.n+'（毛利 '+Math.round(r.mr*100)+'%）';}).join('、'),
+        '这三道菜卖得好但毛利偏低——优先复核定价与成本，或将其明确为引流款。','考点：菜单工程「谜题菜」 → 定价决策']);
+    }
+  }
+  /* 8 日环比 */
+  var daily=insDaily();
+  if(daily.length>=2){
+    var cur=daily[daily.length-1], prev=daily[daily.length-2];
+    if(prev[1]>0){
+      var diff=Math.round((cur[1]-prev[1])/prev[1]*100);
+      out.push([diff>=0?'📈':'📉','营业额环比：'+(diff>=0?'+':'')+diff+'%（'+prev[0]+' ¥'+prev[1].toFixed(0)+' → '+cur[0]+' ¥'+cur[1].toFixed(0)+'）',
+        diff>=0?'增长来自哪里？用上面的维度透视定位增长点，加码有效动作。':'下滑时先看客流还是客单价：客流降→引流，客单价降→搭售与套餐。','考点：按日趋势 → 经营复盘']);
+    }
+  }
+  return out;
+}
+function buildInsightText(){
+  var L=[];
+  L.push('【数据决策分析报告】'+groupName()+' · '+new Date().toLocaleString());
+  var daily=insDaily();
+  if(daily.length){
+    L.push('一、按日趋势');
+    daily.forEach(function(d,i){
+      var hb=(i>0&&daily[i-1][1]>0)?(' 环比'+(d[1]>=daily[i-1][1]?'+':'')+Math.round((d[1]-daily[i-1][1])/daily[i-1][1]*100)+'%'):'';
+      L.push('  '+d[0]+'：营业额 ¥'+d[1].toFixed(0)+' · '+d[2]+' 单 · '+d[3]+' 人'+hb);
+    });
+  }
+  L.push('二、维度透视（'+insX+' × '+insM+'）');
+  insAggregate().slice(0,8).forEach(function(r){
+    L.push('  '+r[0]+'：¥'+r[1].toFixed(0)+' · '+r[2]+' 单 · '+r[3]+' 份');
+  });
+  L.push('三、决策建议');
+  insSuggestions().forEach(function(s,i){ L.push('  '+(i+1)+'. '+s[1]+' → '+s[2]); });
+  return L.join('\n');
+}
+function buildInsight(){
+  var h='';
+  h+='<h3 class="cktitle">一、多维透视（换一个维度，看见另一家店）</h3>';
+  h+='<div class="mgmtTools">分析维度 <select id="insX" class="tin" onchange="setIns()">'
+    +['时段','分类','桌台','支付方式','菜品TOP'].map(function(x){return '<option'+(insX===x?' selected':'')+'>'+x+'</option>';}).join('')
+    +'</select> 指标 <select id="insM" class="tin" onchange="setIns()">'
+    +['营业额','单数','销量'].map(function(m){return '<option'+(insM===m?' selected':'')+'>'+m+'</option>';}).join('')
+    +'</select><span style="color:#9AA3AD;font-size:12px;">口径：门市价（团购让利在营业统计单列）</span></div>';
+  var arr=insAggregate();
+  var mi = insM==='单数'?2 : insM==='销量'?3 : 1;
+  var sum=arr.reduce(function(s,x){return s+x[mi];},0)||1;
+  var top=arr.length?Math.max.apply(null,arr.map(function(x){return x[mi];})):1;
+  if(!arr.length) h+='<div class="empty">还没有订单数据</div>';
+  arr.forEach(function(r){
+    var v=r[mi];
+    h+='<div class="trow"><span class="rank">·</span>'+esc(r[0])
+      +(insM!=='营业额'?'<span style="color:#9AA3AD;font-size:11.5px;">¥'+r[1].toFixed(0)+'</span>':'')
+      +'<span class="bar" style="width:'+Math.round(v/top*220)+'px;"></span>'
+      +'<span class="qty2">'+(insM==='营业额'?'¥'+v.toFixed(0):v+(' '+(insM==='单数'?'单':'份')))+' · 占 '+Math.round(v/sum*100)+'%</span></div>';
+  });
+  /* 时段×分类矩阵 */
+  if(S.orders.length){
+    var hrs={}, catSet={};
+    S.orders.forEach(function(o){
+      var k=oHour(o); hrs[k]=hrs[k]||{};
+      o.items.forEach(function(it){ var d=dishById(it.dishId); var c=(d&&d.cat)||'其他'; catSet[c]=1;
+        hrs[k][c]=(hrs[k][c]||0)+it.price*it.qty; });
+    });
+    var hk=Object.keys(hrs).sort(), ck=Object.keys(catSet);
+    h+='<h3 class="cktitle">二、交叉分析：时段 × 分类（哪个时段卖什么类目 · 备货与推荐依据）</h3>';
+    h+='<div style="overflow-x:auto;"><table class="mgmt"><thead><tr><th>时段</th>'+ck.map(function(c){return '<th>'+esc(c)+'</th>';}).join('')+'<th>合计</th></tr></thead><tbody>';
+    hk.forEach(function(k){
+      var rowSum=0; var tds=ck.map(function(c){ var v=(hrs[k][c]||0); rowSum+=v; return '<td data-th="'+esc(c)+'">'+(v?('¥'+v.toFixed(0)):'—')+'</td>'; }).join('');
+      h+='<tr><td data-th="时段"><b>'+esc(k)+'</b></td>'+tds+'<td data-th="合计"><b>¥'+rowSum.toFixed(0)+'</b></td></tr>';
+    });
+    h+='</tbody></table></div>';
+  }
+  /* 按日趋势 */
+  var daily=insDaily();
+  h+='<h3 class="cktitle">三、按日趋势（环比看经营走向）</h3>';
+  if(daily.length){
+    h+='<table class="mgmt"><thead><tr><th>日期</th><th>营业额</th><th>单数</th><th>客流</th><th>客单价</th><th>环比</th></tr></thead><tbody>';
+    daily.forEach(function(d,i){
+      var hb='—';
+      if(i>0&&daily[i-1][1]>0){ var p=Math.round((d[1]-daily[i-1][1])/daily[i-1][1]*100);
+        hb='<span style="color:'+(p>=0?'var(--green)':'var(--red)')+';font-weight:700;">'+(p>=0?'+':'')+p+'%</span>'; }
+      h+='<tr><td data-th="日期">'+esc(d[0])+'</td><td data-th="营业额">¥'+d[1].toFixed(0)+'</td><td data-th="单数">'+d[2]+'</td><td data-th="客流">'+d[3]+' 人</td><td data-th="客单价">¥'+(d[2]?(d[1]/d[2]).toFixed(0):'—')+'</td><td data-th="环比">'+hb+'</td></tr>';
+    });
+    h+='</tbody></table>';
+  } else h+='<div class="empty">还没有订单数据</div>';
+  /* 决策建议 */
+  var sug=insSuggestions();
+  INS_TEXT=buildInsightText();
+  h+='<h3 class="cktitle">四、决策建议（数据 → 信息 → 决策）</h3>';
+  sug.forEach(function(s,i){
+    h+='<div class="ckquad"><div class="ckqh">'+(i+1)+'. '+s[0]+' '+esc(s[1])+'</div>'
+      +'<div class="cktx" style="font-size:13px;">→ '+esc(s[2])+'</div>'
+      +'<div class="ckad" style="margin-top:4px;">'+esc(s[3])+'</div></div>';
+  });
+  h+='<div class="resetrow"><button class="reset" onclick="copyText(INS_TEXT,this)">📋 复制分析报告（交作业用）</button>'
+    +'<button class="reset" onclick="window.print()">打印报告</button></div>';
+  return h;
+}
 function setPrice(id,v){
   var p=parseFloat(v); if(isNaN(p)||p<0) p=0;
   S.menu.forEach(function(d){ if(d.id===id) d.price=Math.round(p*10)/10; });
@@ -2473,8 +2997,128 @@ function toggSO(id){
 }
 function resetAll(){
   uiConfirm('清空全部数据', '确定清空全部订单并恢复默认菜单？\n（用于下一次课堂开始前重置）', function(){
-    S=defaultState(); save(); render();
+    S=defaultState(); TABLES=(S.tables&&S.tables.length)?S.tables.slice():DEFAULT_TABLES.slice(); save(); render();
   }, '清空', true);
+}
+
+/* ================= 菜单体检 ================= */
+function buildCheck(){
+  var menu=S.menu, cats=allCats(), orders=S.orders;
+  var h='', score=0, full=0;
+  function item(ok,w,label,advice){
+    full+=w; if(ok) score+=w;
+    h+='<div class="ckrow"><span class="ckic">'+(ok?'✅':'⚠️')+'</span><div class="cktx"><b>'+label+'</b>'
+      +(ok?'':(advice?'<div class="ckad">'+advice+'</div>':''))+'</div></div>';
+  }
+  h+='<h3 class="cktitle">一、结构体检（菜单还没开卖就能看）</h3>';
+  var n=menu.length;
+  item(n>=8&&n<=30, 8, '菜品总数：'+n+' 道', n<8?'菜品太少，顾客选择余地不足，建议 12–24 道':'菜品偏多，出菜速度与备货压力变大，建议精简到 30 道以内');
+  item(cats.length>=4&&cats.length<=6, 8, '分类数：'+cats.length+' 个', cats.length<4?'分类过粗，顾客翻菜单费劲，建议 4–6 类':'分类过细，页面拥挤，建议合并到 6 类以内');
+  var bad=cats.filter(function(c){return catCount(c)===0;});
+  item(bad.length===0, 5, '空分类：'+(bad.length?esc(bad.join('、')):'无'), '空分类显得菜单没人气，请删除或补菜');
+  var maxc=0, maxcn=''; cats.forEach(function(c){ var k=catCount(c); if(k>maxc){maxc=k; maxcn=c;} });
+  var share=n?maxc/n:0;
+  item(share<=0.5, 8, '分类均衡：最大类「'+esc(maxcn)+'」占 '+Math.round(share*100)+'%', '单一分类超过一半属于"偏科菜单"，建议补充其他类别');
+  if(n){
+    var prices=menu.map(function(d){return d.price;}).sort(function(a,b){return a-b;});
+    var pmin=prices[0], pmax=prices[prices.length-1];
+    var avgp=prices.reduce(function(s,x){return s+x;},0)/n;
+    item(pmax>=pmin*3, 7, '价格梯度：¥'+pmin+' – ¥'+pmax+'（极差 '+(pmin>0?(pmax/pmin).toFixed(1):'—')+' 倍）', '价格过于接近，缺少高中低搭配，顾客难以形成价格参照');
+    var anchor=menu.filter(function(d){return d.price>=avgp*2;}).length;
+    item(anchor>=1, 7, '锚定菜：'+anchor+' 道（价格≥均价 2 倍）', '设置 1–2 道高价招牌菜作"价格锚点"，其余菜会显得实惠');
+    var descOk=menu.filter(function(d){return (d.desc||'').length>=6;}).length;
+    item(descOk>=n*0.6, 7, '描述完整度：'+descOk+'/'+n, '给至少六成菜品写卖点描述（食材、口味、做法），帮顾客决策也帮服务员推销');
+    var costOk=menu.filter(function(d){return d.cost>0;}).length;
+    item(costOk>=n*0.8, 5, '成本价填写：'+costOk+'/'+n+' 道', '成本价是毛利分析的原料，请到菜品编辑里补填');
+    var charm=menu.filter(function(d){return /\.(8|9)$/.test(String(d.price));}).length;
+    item(charm>0, 5, '尾数定价：'+charm+' 道以 .8 / .9 结尾', '试试心理定价：58、88 比 60、90 更有"便宜感"');
+  }
+  h+='<h3 class="cktitle">二、经营体检（订单满 5 单后自动启用）</h3>';
+  if(orders.length<5){
+    h+='<div class="empty">当前订单 '+orders.length+' 单——满 5 单后开放：综合毛利率 + 菜品四象限诊断（明星 / 耕牛 / 谜题 / 瘦狗）</div>';
+  } else {
+    var costRate=menu.length? menu.filter(function(d){return d.cost>0;}).length/menu.length : 0;
+    if(costRate<0.6){
+      h+='<div class="empty">成本价填写不足六成，暂时无法计算毛利率——请先到「菜单管理」补填成本价</div>';
+    } else {
+      var soldById={};
+      orders.forEach(function(o){ o.items.forEach(function(it){ if(it.dishId) soldById[it.dishId]=(soldById[it.dishId]||0)+it.qty; }); });
+      var rows=menu.map(function(d){
+        var q=soldById[d.id]||0;
+        var mr=(d.cost>0&&d.price>0)?(d.price-d.cost)/d.price:0;
+        return {n:d.name, q:q, mr:mr};
+      });
+      var qs=rows.map(function(r){return r.q;}).slice().sort(function(a,b){return a-b;});
+      var ms=rows.map(function(r){return r.mr;}).slice().sort(function(a,b){return a-b;});
+      var mq=qs[Math.floor(qs.length/2)]||0, mm=ms[Math.floor(ms.length/2)]||0;
+      var quad={star:[],cow:[],puzzle:[],dog:[]};
+      rows.forEach(function(r){
+        if(r.q>=mq&&r.mr>=mm) quad.star.push(r);
+        else if(r.q<mq&&r.mr>=mm) quad.cow.push(r);
+        else if(r.q>=mq) quad.puzzle.push(r);
+        else quad.dog.push(r);
+      });
+      [['star','🌟 明星菜品（旺销 · 高毛利）','留在菜单黄金位置，可小幅提价测试弹性',quad.star],
+       ['cow','🐮 耕牛菜品（待推 · 高毛利）','加大推荐力度：改描述、调排位、服务员重点推销',quad.cow],
+       ['puzzle','❓ 谜题菜品（旺销 · 低毛利）','提价或降成本；或明确当引流款经营',quad.puzzle],
+       ['dog','🐕 瘦狗菜品（滞销 · 低毛利）','候选淘汰：先改良试卖，再决定换菜或删除',quad.dog]
+      ].forEach(function(qd){
+        h+='<div class="ckquad"><div class="ckqh">'+qd[1]+'<span>'+qd[3].length+' 道</span></div>'
+          +'<div class="ckchips">'+(qd[3].length?qd[3].map(function(r){return '<span class="chip">'+esc(r.n)+'（'+r.q+' 份 · 毛利 '+Math.round(r.mr*100)+'%）</span>';}).join(''):'<span class="chip none">暂无</span>')+'</div>'
+          +'<div class="ckad">'+qd[2]+'</div></div>';
+      });
+      var totRev=0, totCost=0;
+      orders.forEach(function(o){ o.items.forEach(function(it){
+        var d=dishById(it.dishId);
+        if(d&&d.cost>0){ totRev+=it.price*it.qty; totCost+=d.cost*it.qty; }
+      }); });
+      var gm=totRev?(totRev-totCost)/totRev:0;
+      item(gm>=0.55, 30, '综合毛利率：'+Math.round(gm*100)+'%（已填成本菜品口径）', '餐饮综合毛利一般在 55%–65%；偏低时优先检查高销量菜的定价与成本');
+    }
+  }
+  h+='<div class="ckscore">菜单体检得分：<b>'+Math.round(score/Math.max(1,full)*100)+'</b> / 100'
+    +(orders.length<5?'（结构层）':'（结构 + 经营）')+'</div>'
+    +'<div class="datanote">体检依据：菜单工程（Kasavana & Smith 四象限）+ 菜单结构设计常规指标；象限以中位数分界。</div>';
+  return h;
+}
+
+/* ================= 桌号管理 ================= */
+function tableAdd(){
+  var el=document.getElementById('newTable'); var v=el? String(el.value).trim() : '';
+  if(!v){ uiAlert('提示', '请输入桌号，如 B03'); return; }
+  if(v.length>12){ uiAlert('提示', '桌号最多 12 个字符'); return; }
+  if(TABLES.indexOf(v)>=0){ uiAlert('提示', '桌号「'+v+'」已存在'); return; }
+  TABLES.push(v); syncTables();
+  if(!save()){ TABLES.pop(); syncTables(); uiAlert('保存失败', '本机浏览器存储空间不足，桌号未保存。'); return; }
+  render();
+}
+function tableRen(i){
+  var old=TABLES[i]; if(old==null) return;
+  var el=document.getElementById('tt'+i); var v=el? String(el.value).trim() : '';
+  if(!v||v===old) return;
+  if(v.length>12){ uiAlert('提示', '桌号最多 12 个字符'); return; }
+  if(TABLES.indexOf(v)>=0){ uiAlert('提示', '桌号「'+v+'」已存在'); return; }
+  S.orders.forEach(function(o){ if(o.table===old) o.table=v; });
+  TABLES[i]=v; syncTables();
+  if(curTable===old) curTable=v;
+  save(); render();
+}
+function tableDel(i){
+  var t=TABLES[i]; if(t==null) return;
+  if(TABLES.length<=1){ uiAlert('提示', '至少保留一个桌号'); return; }
+  var n=S.orders.filter(function(o){return o.table===t;}).length;
+  uiConfirm('删除桌号', '删除桌号「'+t+'」？'+(n?('\n该桌有 '+n+' 张历史订单，订单数据保留，只是桌号列表里不再显示。'):''), function(){
+    TABLES.splice(i,1); syncTables();
+    if(curTable===t) curTable=TABLES[0]||'A01';
+    save(); render();
+  }, '删除', true);
+}
+function tableReset(){
+  uiConfirm('恢复默认桌号', '恢复为默认的 6 个桌号（A01–A04、B01、B02）？\n自定义桌号会被覆盖，历史订单不受影响。', function(){
+    TABLES=DEFAULT_TABLES.slice(); syncTables();
+    if(TABLES.indexOf(curTable)<0) curTable=TABLES[0];
+    save(); render();
+  }, '恢复', true);
 }
 
 /* ================= 菜品编辑：新增 / 改价 / 图片 / 描述 / 规格 ================= */
@@ -2484,21 +3128,21 @@ var edlg=null;
 function openDishDlg(id){
   var d = id? dishById(id) : null;
   if(d){
-    edlg={ id:d.id, name:d.name, cat:d.cat, price:d.price, unit:d.unit||'', desc:d.desc||'',
+    edlg={ id:d.id, name:d.name, cat:d.cat, price:d.price, cost:d.cost||'', unit:d.unit||'', desc:d.desc||'',
       emoji:d.emoji||'🍽️', img:d.img||'',
       specs: d.specs? d.specs.map(function(s){
         return {n:s.n, p:(d.specPrice && d.specPrice[s.n]!=null)? d.specPrice[s.n] : d.price+s.add};
       }) : [] };
   } else {
     var cs=allCats();
-    edlg={ id:null, name:'', cat:(curCat||cs[0]||'热菜'), price:'', unit:'', desc:'', emoji:'🍽️', img:'', specs:[] };
+    edlg={ id:null, name:'', cat:(curCat||cs[0]||'热菜'), price:'', cost:'', unit:'', desc:'', emoji:'🍽️', img:'', specs:[] };
   }
   renderEDlg();
 }
 function syncEDlg(){
   if(!edlg) return;
   var g=function(i){ var e=document.getElementById(i); return e? e.value : ''; };
-  edlg.name=g('edName'); edlg.cat=g('edCat'); edlg.price=g('edPrice');
+  edlg.name=g('edName'); edlg.cat=g('edCat'); edlg.price=g('edPrice'); edlg.cost=g('edCost');
   edlg.unit=g('edUnit'); edlg.desc=g('edDesc');
 }
 function renderEDlg(){
@@ -2535,7 +3179,10 @@ function renderEDlg(){
     +'</datalist></div>'
     +'<div><label>价格（元）*</label><input id="edPrice" type="number" min="0" step="0.5" value="'+esc(edlg.price)+'" placeholder="如：88"></div>'
     +'</div></div>';
-  h+='<div class="fld"><label>计价单位（可选）</label><input id="edUnit" value="'+esc(edlg.unit)+'" placeholder="如 /位、/份；留空按份计价"></div>';
+  h+='<div class="fld"><div class="row2">'
+    +'<div><label>成本价（选填 · 供毛利分析与菜单体检）</label><input id="edCost" type="number" min="0" step="0.5" value="'+esc(edlg.cost)+'" placeholder="如：45"></div>'
+    +'<div><label>计价单位（可选）</label><input id="edUnit" value="'+esc(edlg.unit)+'" placeholder="如 /位、/份；留空按份计价"></div>'
+    +'</div></div>';;
   h+='<div class="fld"><label>菜品描述（可选）</label><textarea id="edDesc" placeholder="口味、食材、卖点，如：太湖银鱼，色如黄金，鲜嫩无刺">'+esc(edlg.desc)+'</textarea></div>';
   /* 规格 */
   h+='<div class="fld"><label>规格与规格价（可选，如「半条 / 整条」「例份 / 大份」）</label>';
@@ -2593,7 +3240,8 @@ function saveDish(){
   var cat=String(edlg.cat||'').trim()||'未分类';
   var obj={ id: edlg.id || ('d'+Date.now().toString().slice(-8)),
     cat:cat, name:name, emoji:edlg.emoji||'🍽️', img:edlg.img||'',
-    price:Math.round(price*10)/10, unit:String(edlg.unit||'').trim(),
+    price:Math.round(price*10)/10, cost:Math.max(0, parseFloat(edlg.cost)||0),
+    unit:String(edlg.unit||'').trim(),
     desc:String(edlg.desc||'').trim(), specs:specs, specPrice:specPrice };
   var backupMenu=JSON.stringify(S.menu), backupCats=JSON.stringify(S.cats||[]);
   if(edlg.id){
@@ -2879,10 +3527,10 @@ function copyText(text, btn){
 function orderCode(o){
   var p = { v:1, u:ACC, t:o.table, no:o.no, thm:o.timeHM,
     it:(o.items||[]).map(function(x){ return [x.name, x.spec||'', (x.mods||[]).join('、'), x.qty, x.price]; }),
-    nt:o.orderNote||'', ts:o.ts };
+    nt:o.orderNote||'', ts:o.ts, g:o.guests||0 };
   return 'OD1.' + b64e(JSON.stringify(p));
 }
-function orderCodeURL(o){ return SHARE_BASE + '?o=' + encodeURIComponent(orderCode(o)); }
+function orderCodeURL(o){ return SHARE_BASE + '&o=' + encodeURIComponent(orderCode(o)); }
 /* 从地址里识别出订单码并自动入账（群里点开链接就能收单） */
 function takeOrderLink(){
   if(!ACC) return;
@@ -2952,7 +3600,7 @@ function acceptOrderCodes(list){
       items:(o.it||[]).map(function(a){
         return { name:a[0], spec:a[1]||null, mods:a[2]?String(a[2]).split('、'):[], qty:a[3], price:a[4] };
       }),
-      orderNote:o.nt||'', status:'new', ts:o.ts||Date.now(), timeHM:o.thm||nowHM()
+      orderNote:o.nt||'', guests:o.g||0, status:'new', ts:o.ts||Date.now(), timeHM:o.thm||nowHM()
     });
     n += 1;
   });
@@ -3011,7 +3659,8 @@ function importData(ev){
 }
 
 /* ================= 扫码互动：桌码 / 订单码 ================= */
-var SHARE_BASE = 'https://emenu-ordering-sim.app.workbuddy.host/';
+var SHARE_HOST = 'https://emenu-ordering-sim-v2.app.workbuddy.host/';
+var SHARE_BASE = SHARE_HOST + '?sharecode=R66XD75JYP';   /* 访问需带 sharecode，二维码与订单码自动携带 */
 var B64C = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 function utf8Bytes(str){
   var out = [], i, c;
@@ -3284,7 +3933,7 @@ function shareInfo(){
   var best = null, i, txt, url;
   for(i = 0; i < QR_LEVELS.length; i++){
     txt = packTight(QR_LEVELS[i][0], QR_LEVELS[i][1], QR_LEVELS[i][2]);
-    url = SHARE_BASE + '?g=' + encodeURIComponent(ACC || '') + '&z=1'
+    url = SHARE_BASE + '&g=' + encodeURIComponent(ACC || '') + '&z=1'
       + (OPEN_STATE ? '' : '&cl=1') + '&d=' + b64uEnc(lzEnc(txt));
     if(best === null || url.length < best.url.length) best = { url: url, lv: i, name: QR_LEVELS[i][3], raw: txt.length };
     if(url.length <= QR_TARGET) return best;
@@ -3496,7 +4145,7 @@ function gateCheck(cb){
   if(typeof fetch !== 'function'){ fin(false); return; }
   try{
     timer = setTimeout(function(){ fin(false); }, 2500);
-    fetch(SHARE_BASE + 'status.txt?t=' + Date.now(), { cache:'no-store' })
+    fetch(SHARE_HOST + 'status.txt?t=' + Date.now(), { cache:'no-store' })
       .then(function(r){ if(!r.ok) throw new Error('nf'); return r.text(); })
       .then(function(txt){
         var seg = String(txt || '').split('|');
@@ -3537,7 +4186,7 @@ function fetchStatus(cb){
   function fin(v){ if(done) return; done = true; if(timer) clearTimeout(timer); cb(v); }
   try{
     timer = setTimeout(function(){ fin(null); }, 2500);
-    fetch(SHARE_BASE + 'status.txt?t=' + Date.now(), { cache:'no-store' })
+    fetch(SHARE_HOST + 'status.txt?t=' + Date.now(), { cache:'no-store' })
       .then(function(r){ if(!r.ok) throw new Error('nf'); return r.text(); })
       .then(function(t){ fin(parseStatus(t)); })
       .catch(function(){ fin(null); });
@@ -3648,7 +4297,7 @@ function initAppBody(){
     GUEST_GROUP = p.gn || guestGroupName(ACC, ACC_NAME);
     isGuest = true;
     if(p.t){ curTable = String(p.t).replace(/[<>"'&\\]/g, '').slice(0, 12) || 'A01'; }
-    if(TABLES.indexOf(curTable) < 0) TABLES = TABLES.concat([curTable]);
+    ensureTable(curTable);
     /* 二维码里带闭店标记：本组老师关闭了点单端。
        在还原菜单之前就拦下，菜单数据不会落到这台设备上 */
     if(q0.cl === '1'){
@@ -3680,7 +4329,7 @@ function initAppBody(){
     if(q.t){
       q.t = String(q.t).replace(/[<>"'&\\]/g, '').slice(0, 12) || 'A01';
       curTable = q.t;
-      if(TABLES.indexOf(curTable) < 0) TABLES = TABLES.concat([curTable]);
+      ensureTable(curTable);
     }
     S = load();
     showApp();
