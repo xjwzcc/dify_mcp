@@ -1,0 +1,96 @@
+Shixunlab ECS migration — 2026-11-03
+
+Instance: i-bp1h0trzap34t10riuj9 (cn-hangzhou), 114.215.169.27
+Domain: https://shixunlab.cc
+Student: /student/    Teacher: /teacher/
+Release: /opt/shixunlab/releases/20261104-agent3, current symlink /opt/shixunlab/current
+Previous migration release: /opt/shixunlab/releases/20261103
+Node: /opt/node-v24.10.0-linux-x64/bin/node
+Service: systemctl status shixunlab nginx
+Health: curl -fsS http://127.0.0.1:9000/healthz
+Logs: journalctl -u shixunlab -n 100 --no-pager
+Restart: systemctl restart shixunlab
+Environment: /etc/shixunlab/app.env (root only)
+
+Databases are on the ECS local disk under /var/lib/shixunlab:
+  accounts/accounts.sqlite, catering/emenu.sqlite, hotel/hotel.sqlite
+STORAGE_BACKEND=nas is the historical name of the local SQLite adapter;
+REQUIRE_NAS=0 means there is no NAS mount requirement or new NAS subscription.
+Teacher AI assistant enabled on 2026-11-04 in ecs-external mode.
+Website: shixunlab.service, User=teaching, MemoryMax=768M.
+Trusted sandbox controller: shixunlab-agent.service, MemoryMax=896M.
+Controller uses root with only CHOWN/DAC_OVERRIDE/FOWNER/SETUID/SETGID/KILL;
+NoNewPrivileges, PrivateTmp, ProtectHome and read-only system remain enabled.
+Model execution remains inside network-isolated bubblewrap, one execution and
+one retained sandbox. Python 3.11 native dependencies are in python311/.
+Settings: /etc/shixunlab/agent-web.env and agent-control.env (root 0600).
+Agent SQLite: /var/lib/shixunlab-agent/agent.sqlite; committed snapshots remain in OSS.
+Logs: journalctl -u shixunlab-agent -n 100 --no-pager
+Deployment checks: see deploy/ECS-TEACHER-AGENT.md.
+Follow-up repair: exclude AppleDouble metadata from skills/releases and use the
+Python 3.11 runner interpreter for sandbox MCP and its python3 alias. Verified a
+real approved teacher conversation, business tools, saved response, reload of
+history, session closure and sandbox cleanup on agent3; health agent=true.
+MCP remains disabled; old FC remains disabled.
+Only nginx is publicly reachable for the application; internal services bind loopback.
+
+Original source at migration: 87 accounts journal commits, 74 catering, 84 hotel.
+Source heads were checked unchanged after disabling FC and before DNS cutover.
+Original database integrity and SHA-256 were verified before starting ECS.
+Migration backup remains encrypted in the existing private OSS bucket forcc-hangzhou:
+teaching/v1/migrations/ecs-20261103-1793696636501.bin
+SHA-256 95153fe780de223737b07adf612250a27efbeff6b6cbc10289dbb86517a6b6eb
+The existing storage encryption key is required to restore that artifact.
+Hourly encrypted OSS backups were enabled on 2026-11-03 18:00 CST.
+Service/timer: shixunlab-backup.service / shixunlab-backup.timer (enabled, active).
+ECS role: ShixunlabEcsBackupRole; custom RAM policy name: cc.
+Policy is limited to Get/Put/List at teaching/v1/ecs-backups/ plus bucket checks;
+no delete permission. It is separate from the historical FC storage policy.
+First verified manifest:
+teaching/v1/ecs-backups/2026-11-03T10-00-13-469Z-ac90ea6e-80b8-443c-a938-2330837f51ba/manifest.bin
+Full restore passed hashes, database integrity and row counts in the separate directory
+/var/backups/shixunlab/restore-check-20261103-1801; live data was not overwritten.
+Backup credentials: /etc/shixunlab/backup.env (root:root 0600; retain the fixed key).
+Receipt: /var/backups/shixunlab/last-success.json; see deploy/ECS-BACKUP.md.
+Systemd restart gate: /etc/systemd/system/shixunlab.service.d/backup.conf.
+It requires a successful backup before the web service starts; no restart was needed
+to install the gate. Full production restart with this gate has not been rehearsed.
+Remote checks passed: backup Result=success, ExecMainStatus=0, timer enabled,
+systemd-analyze verify, web service active and HTTPS HTTP 200.
+Do not enable old FC as a rollback after ECS receives writes: its OSS data is
+the pre-cutover snapshot. Stop ECS writes and export current data before any rollback.
+
+TLS files: /etc/nginx/ssl/shixunlab/fullchain.pem and privkey.pem.
+Existing certificate expires 2027-01-25 07:59:59 Asia/Shanghai.
+Renew/deploy the certificate before expiry; automatic certificate renewal is not configured.
+FC cc_dify_mcp is disabled; ongoing requests were aborted and running instances reached zero.
+Existing OSS, NAS, SLS and cloud-backup resources were not deleted; their independent
+storage charges, if any, are not part of the ECS annual subscription.
+
+Deployment verification:
+node --test tests/ecs-migration.test.cjs tests/integration.test.cjs (Node 22.22.3, 8 passed)
+node --test --test-name-pattern='32 classroom browser sessions retain a separate password-attempt budget' tests/classroom-login.test.cjs (1 passed)
+bash -n deploy/ecs-setup.sh
+node --check scripts/export-ecs.cjs
+nginx -t (ECS)
+Node 24 --check --input-type=commonjs on the final accounts server before replacing it.
+Live student login, both course entry/read flows and secure cookies verified.
+Three database integrity checks and record counts preserved across systemctl restart.
+The stored legacy teacher test account is unapproved and correctly returned 403.
+Both existing approved teacher records migrated, but no matching approved teacher
+password was available for a live login test. Local teacher workflow tests passed.
+The 32-session regression checks shared-IP rate limits sequentially using one test
+identity; it is not a 32-concurrent-user performance benchmark. No full test suite run.
+
+Final deployed accounts server SHA-256:
+b54463263a39debbfb16f3e5e1a1326fe37261dcfa01168e924bc9185b6681e8
+Final live check: python3 /private/tmp/ecs-live-smoke.py (passed).
+HTTP redirects to HTTPS; teacher entry page returns 200; HTTPS certificate validates.
+Public AliDNS and local DNS query returned 114.215.169.27; ECS itself resolved
+the normal domain and received health HTTP 200 with valid TLS. The Mac system
+resolver still retained the old FC alias, so its browser showed InvokeDisabled.
+Unprivileged dscacheutil -flushcache did not clear that resolver cache.
+Privileged mDNSResponder reload required a password and was not performed.
+Browser policy blocked chrome://net-internals, so browser cache clearing was not
+attempted through another interface. Cloud deployment is complete; this Mac's
+normal-browser verification remains pending its DNS cache refresh.

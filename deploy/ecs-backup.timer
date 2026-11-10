@@ -1,0 +1,12 @@
+[Unit]
+Description=Hourly Shixunlab OSS backup
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+AccuracySec=30s
+RandomizedDelaySec=60s
+Unit=shixunlab-backup.service
+
+[Install]
+WantedBy=timers.target

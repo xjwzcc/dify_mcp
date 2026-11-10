@@ -2,7 +2,7 @@
 set -euo pipefail
 cd /code
 export NODE_ENV=production
-export ENABLE_MCP=1
+export ENABLE_MCP="${ENABLE_MCP:-0}"
 export STORAGE_BACKEND="${STORAGE_BACKEND:-nas}"
 case "$STORAGE_BACKEND" in
   nas)

@@ -1,0 +1,25 @@
+[Unit]
+Description=Verified encrypted Shixunlab SQLite backup to OSS
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=teaching
+Group=teaching
+EnvironmentFile=/etc/shixunlab/backup.env
+ExecStart=/usr/bin/flock --wait 300 /var/backups/shixunlab/backup.lock /opt/node-v24.10.0-linux-x64/bin/node --max-old-space-size=128 /opt/shixunlab/backup/scripts/backup-ecs.cjs backup
+TimeoutStartSec=15min
+UMask=0077
+Nice=10
+IOSchedulingClass=idle
+MemoryMax=384M
+TasksMax=32
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# SQLite read-only WAL access may need to create/update shared-memory files.
+ReadWritePaths=/var/lib/shixunlab /var/backups/shixunlab
+StandardOutput=journal
+StandardError=journal
