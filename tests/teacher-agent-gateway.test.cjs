@@ -19,18 +19,21 @@ test('teacher gateway authenticates course sessions, signs requests and brokers 
   upstream.listen(0,'127.0.0.1');await once(upstream,'listening');
   const base='http://127.0.0.1:19680';let output='';
   const child=spawn(process.execPath,['server.cjs'],{cwd:path.resolve(__dirname,'..'),stdio:['ignore','pipe','pipe'],env:{...process.env,NODE_ENV:'test',STORAGE_BACKEND:'nas',DATA_DIR:data,
-    PORT:'19680',CATERING_PORT:'19681',HOTEL_PORT:'19682',ACCOUNTS_PORT:'19684',HOST:'127.0.0.1',ENABLE_MCP:'0',
+    ACCOUNTS_ADMIN_SOCKET:'/tmp/agent-admin-'+process.pid+'.sock',PORT:'19680',CATERING_PORT:'19681',HOTEL_PORT:'19682',ACCOUNTS_PORT:'19684',HOST:'127.0.0.1',ENABLE_MCP:'0',
     TEACHER_PASSWORD:'TestTeacherPass123',CATERING_CLASS_CODE:'TESTMENU',HOTEL_CLASS_CODE:'TESTHOTEL',ENABLE_TEACHER_CHAT:'1',
     AGENT_BASE_URL:`http://127.0.0.1:${upstream.address().port}`,AGENT_SIGNING_KEY:key,AGENT_TOOL_VERIFY_KEY:toolKey,TEACHING_DEPLOYMENT_ID:'test'}});
   child.stdout.on('data',b=>output+=b);child.stderr.on('data',b=>output+=b);
   t.after(async()=>{if(child.exitCode===null){const done=once(child,'exit');child.kill();await done;}upstream.closeAllConnections();upstream.close();fs.rmSync(data,{recursive:true,force:true});});
   for(let i=0;i<100;i++){if(child.exitCode!==null)throw Error(output);try{if((await fetch(base+'/healthz')).ok)break;}catch{}await new Promise(r=>setTimeout(r,100));if(i===99)throw Error(output);}
   async function call(route,{body,cookie,headers={}}={}){const r=await fetch(base+route,{method:body===undefined?'GET':'POST',headers:{'Content-Type':'application/json',...(cookie?{Cookie:cookie}:{}),...headers},body:body===undefined?undefined:JSON.stringify(body)});const text=await r.text();return {status:r.status,body:r.headers.get('content-type')?.includes('json')?JSON.parse(text):text,cookie:r.headers.get('set-cookie')?.split(';')[0]};}
+  await require('../scripts/manage-teachers.cjs').manage({action:'create',username:'AGENTTEACHER',name:'测试教师',password:'TestTeacherPass123'},'/tmp/agent-admin-'+process.pid+'.sock');
+  const ta=await call('/teacher/api/login',{body:{username:'AGENTTEACHER',password:'TestTeacherPass123'}});
+  const sa=await call('/student/api/register',{body:{username:'S001',name:'样例学生',password:'Student123!',confirmPassword:'Student123!'}});
   const teacher={},identities={};
   for(const course of ['hotel','catering']){
-    teacher[course]=(await call(`/${course}/api/login`,{body:{role:'teacher',password:'TestTeacherPass123'}})).cookie;
+    teacher[course]=(await call('/teacher/api/enter',{body:{course},cookie:ta.cookie})).cookie;
     assert.ok(teacher[course]);
-    const student=await call(`/${course}/api/login`,{body:{id:'S001',name:'样例学生',password:'Student123!',classCode:course==='hotel'?'TESTHOTEL':'TESTMENU'}});
+    const student=await call('/student/api/enter',{body:{course},cookie:sa.cookie});
     assert.equal(student.status,200,JSON.stringify(student.body));
     assert.equal((await call(`/${course}/api/chat/capabilities`)).status,401);
     assert.equal((await call(`/${course}/api/chat/capabilities`,{cookie:student.cookie})).status,403);

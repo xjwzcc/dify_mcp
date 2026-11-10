@@ -51,7 +51,7 @@ module.exports = function createChatGateway({ services, bridgeSecret, env = proc
     rates.set(key,r); if (++r.count > 30) fail(429,'RATE_LIMIT','发送过于频繁，请稍后重试');
   }
   async function handler(req, res, url) {
-    const asset = /^\/(catering|hotel)\/teacher-chat\/(chat\.js|api\.js|state\.js|markdown\.js|vendor\/(?:marked|purify)\.js|chat\.css)$/.exec(url.pathname);
+    const asset = /^\/(catering|hotel)\/teacher-chat\/(idle-sync\.js|chat\.js|api\.js|state\.js|markdown\.js|vendor\/(?:marked|purify)\.js|chat\.css)$/.exec(url.pathname);
     if (asset) {
       if (!['GET','HEAD'].includes(req.method)) { json(res,405,{error:{code:'METHOD_NOT_ALLOWED',message:'仅支持读取'}}); return true; }
       res.writeHead(200,{'Content-Type':asset[2].endsWith('.css')?'text/css; charset=utf-8':'text/javascript; charset=utf-8','Cache-Control':'no-cache','X-Content-Type-Options':'nosniff'});
@@ -82,7 +82,7 @@ module.exports = function createChatGateway({ services, bridgeSecret, env = proc
       const who=await courseCall(course,{action:'identity'},cookie);
       if (suffix==='/capabilities') {
         let ready=configured;
-        if(ready && env.TEACHER_AGENT_MODE==='fc-internal') {
+        if(ready && ['fc-internal','ecs-external'].includes(env.TEACHER_AGENT_MODE)) {
           try { ready=(await fetch(new URL('/health',target),{signal:AbortSignal.timeout(1500)})).ok; } catch { ready=false; }
         }
         json(res,200,{enabled:enabled && allowed(who),configured:ready,teacher:{id:who.teacher_id,name:who.name},course,
@@ -121,7 +121,7 @@ module.exports = function createChatGateway({ services, bridgeSecret, env = proc
       const headers={'X-Teacher-Assertion':assertion(who,req.method,upstreamPath,body,env),Accept:stream?'text/event-stream':'application/json'};
       if (req.method==='POST') headers['Content-Type']=suffix.endsWith('/attachments')?'application/octet-stream':'application/json';
       const response=await fetch(new URL(upstreamPath,target),{method:req.method,headers,body:req.method==='POST'?body:undefined,
-        signal:stream && env.TEACHER_AGENT_MODE==='fc-internal' ? controller.signal :
+        signal:stream && ['fc-internal','ecs-external'].includes(env.TEACHER_AGENT_MODE) ? controller.signal :
           AbortSignal.any([controller.signal,AbortSignal.timeout(stream?60000:45000)]),redirect:'error'});
       const out={'Content-Type':response.headers.get('content-type') || 'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'};
       if (response.headers.get('content-disposition')) out['Content-Disposition']=response.headers.get('content-disposition');
