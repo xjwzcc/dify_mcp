@@ -1,6 +1,7 @@
 """Manual Linux/FC probe: temporary isolated tasks, no model API or classroom data.
 
-Run with PROBE_COUNT=30 and the deployed teacher-agent on PYTHONPATH.
+Defaults to one sandbox; set PROBE_COUNT explicitly for a larger authorized probe.
+Use the deployed teacher-agent on PYTHONPATH.
 Requires root for the same per-sandbox UID drop used by the FC provider.
 """
 import concurrent.futures,json,os,shutil,tempfile,time,uuid
@@ -10,7 +11,7 @@ from agent_demo import internal_sandbox as module
 
 if os.geteuid()!=0:
  raise SystemExit('Run only inside the authorized FC/Linux instance')
-count=int(os.environ.get('PROBE_COUNT','30'))
+count=int(os.environ.get('PROBE_COUNT','1'))
 if not 1<=count<=30:raise SystemExit('PROBE_COUNT must be 1..30')
 original=module.BASE
 probe=Path(tempfile.mkdtemp(prefix='teacher-resident-probe-',dir='/tmp'))
@@ -29,7 +30,7 @@ Path(sys.argv[sys.argv.index('-o')+1]).write_text('sandbox-probe-ok')
 print(json.dumps({'type':'turn.completed'}),flush=True)
 ''');fake.chmod(0o755)
 module.BASE=probe;module.ROOT=probe/'sandboxes'
-s=Settings(max_active=30,max_sandboxes=30)
+s=Settings(max_active=count,max_sandboxes=count)
 p=module.InternalProvider(s)
 original_popen=module.subprocess.Popen
 def logged_popen(*args,**kwargs):

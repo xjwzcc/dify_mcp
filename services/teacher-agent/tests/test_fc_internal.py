@@ -8,6 +8,51 @@ from agent_demo.config import Settings
 from agent_demo import internal_sandbox
 
 
+def test_sandbox_parent_is_searchable_under_private_systemd_umask(tmp_path):
+    import os
+    previous = os.umask(0o077)
+    try:
+        root = tmp_path/'sandbox-parent'
+        internal_sandbox.searchable_directory(root)
+        assert root.stat().st_mode & 0o777 == 0o711
+        control = root/'control'
+        internal_sandbox.searchable_directory(control)
+        assert control.stat().st_mode & 0o777 == 0o711
+        private = control/'private'
+        private.write_text('private')
+        assert private.stat().st_mode & 0o777 == 0o600
+    finally:
+        os.umask(previous)
+
+
+@pytest.mark.parametrize('version', [1, 2])
+def test_memory_capacity_uses_systemd_and_parent_limits(tmp_path, version):
+    proc = tmp_path/'proc'; (proc/'self').mkdir(parents=True)
+    (proc/'meminfo').write_text('MemTotal: 2097152 kB\n')
+    cgroup = tmp_path/'cgroup'
+    root = cgroup if version == 2 else cgroup/'memory'
+    scope = root/'system.slice/agent.service'; scope.mkdir(parents=True)
+    filename = 'memory.max' if version == 2 else 'memory.limit_in_bytes'
+    (proc/'self/cgroup').write_text(('0::' if version == 2 else '5:memory:')+'/system.slice/agent.service\n')
+    (root/filename).write_text('max' if version == 2 else str(2**60))
+    (scope/filename).write_text(str(896*1024*1024))
+    assert internal_sandbox.memory_capacity(cgroup, proc) == 896*1024*1024
+    (scope.parent/filename).write_text(str(512*1024*1024))
+    assert internal_sandbox.memory_capacity(cgroup, proc) == 512*1024*1024
+
+
+def test_preflight_rejects_service_memory_limit_before_starting_sandbox(monkeypatch, tmp_path):
+    monkeypatch.setattr(internal_sandbox, 'ROOT', tmp_path)
+    monkeypatch.setattr(internal_sandbox, 'memory_capacity', lambda: 512*1024*1024)
+    provider = object.__new__(internal_sandbox.InternalProvider)
+    provider.s = Settings(control_memory_mib=256)
+    with pytest.raises(RuntimeError, match='INSUFFICIENT_FC_MEMORY'):
+        provider.preflight()
+    monkeypatch.setenv('SANDBOX_CONTROL_RESERVE_MIB', '0')
+    with pytest.raises(ValueError, match='SANDBOX_CONTROL_RESERVE_MIB'):
+        Settings.from_env().validate()
+
+
 class Remote:
     value=b''
     writes=0
@@ -51,6 +96,10 @@ def test_internal_boundary_has_no_host_mount_or_network(monkeypatch,tmp_path):
     assert '--proc' not in args
     i=args.index('--symlink')
     assert args[i:i+3]==['--symlink','/opt/agent-bin/codex','/proc/self/exe']
+    python_alias = args.index('/opt/python/bin/python3')
+    assert args[python_alias-2:python_alias+1] == ['--symlink', internal_sandbox.sys.executable, '/opt/python/bin/python3']
+    assert args[args.index('PATH')+1].startswith('/opt/python/bin:')
+    assert '/etc' not in args  # No need to expose host alternatives or credentials.
     assert args[-3:]==['--','python3','/opt/runner/main.py']
 
 
@@ -58,7 +107,7 @@ def test_internal_config_requires_durable_bounded_concurrency():
     with pytest.raises(ValueError,match='durable fc-oss'):
         Settings(provider='fc-internal').validate()
     for count in [1, 4, 30]:
-        Settings(provider='fc-internal',blob_backend='fc-oss',max_active=count).validate()
+        Settings(provider='fc-internal',blob_backend='fc-oss',max_active=count,max_sandboxes=count).validate()
     with pytest.raises(ValueError,match='1 to 30'):
         Settings(provider='fc-internal',blob_backend='fc-oss',max_active=31).validate()
 
@@ -250,6 +299,7 @@ def test_concurrent_workspaces_use_distinct_uids_and_cleanup_independently(monke
     provider.boxes={};provider.lock=threading.RLock()
     # Same prefix deliberately collides with the original UID hash.
     ids=['abcdef'+c*26 for c in '1234']
+    provider.s=Settings(max_active=len(ids),max_sandboxes=len(ids))
     for aid in ids:
         provider.create({'id':aid})
         (tmp_path/aid/'private.txt').write_text(aid)

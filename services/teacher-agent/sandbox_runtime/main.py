@@ -6,6 +6,7 @@ from pathlib import Path
 import selectors
 import signal
 import subprocess
+import sys
 import time
 import urllib.request
 
@@ -72,7 +73,7 @@ def run(spec):
         '[model_providers.gateway]\nname = "Sandbox Gateway"\n'
         'base_url = ' + q(spec["gateway"] + "/v1") + '\n'
         'wire_api = "responses"\nrequires_openai_auth = false\nenv_key = "ATTEMPT_TOKEN"\n'
-        '[mcp_servers.business]\nrequired = true\ncommand = "python3"\nargs = [' + q(str(Path(__file__).with_name('mcp.py'))) + ']\n'
+        '[mcp_servers.business]\nrequired = true\ncommand = ' + q(sys.executable) + '\nargs = [' + q(str(Path(__file__).with_name('mcp.py'))) + ']\n'
         '[mcp_servers.business.env]\nATTEMPT_TOKEN = ' + q(spec["token"]) + '\n'
         'GATEWAY_URL = ' + q(spec["gateway"]) + '\n'
     )

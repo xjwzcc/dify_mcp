@@ -49,6 +49,27 @@ def test_export_skips_links_and_configuration(tmp_path,monkeypatch):
         with pytest.raises(InputError):safe_path(value)
 
 
+def test_mcp_uses_runner_interpreter_instead_of_host_python_alternatives(tmp_path, monkeypatch):
+    import sys
+    import tomllib
+    path = Path(__file__).parents[1]/'sandbox_runtime/main.py'
+    module = importlib.util.spec_from_file_location('interpreter_runner', path)
+    runner = importlib.util.module_from_spec(module); module.loader.exec_module(runner)
+    monkeypatch.setattr(runner, 'ROOT', tmp_path/'run')
+    monkeypatch.setattr(runner, 'WORK', tmp_path/'run/workspace')
+    monkeypatch.setattr(runner.sys, 'executable', '/usr/bin/python3.11')
+    def inspect_config(*args, **kwargs):
+        kwargs['stderr'].close()
+        config = tomllib.loads((runner.ROOT/'home/config.toml').read_text())
+        assert config['mcp_servers']['business']['command'] == '/usr/bin/python3.11'
+        raise RuntimeError('CONFIG_VERIFIED_BEFORE_EXECUTION')
+    monkeypatch.setattr(runner.subprocess, 'Popen', inspect_config)
+    with pytest.raises(RuntimeError, match='CONFIG_VERIFIED_BEFORE_EXECUTION'):
+        runner.run({'files':{}, 'model':'deepseek-flash', 'sandbox_mode':'danger-full-access',
+                    'gateway':'http://127.0.0.1:8080', 'token':'test-token', 'instructions':'read only',
+                    'tool_names':[], 'prompt':'hello', 'seconds':30})
+
+
 def test_docker_stage_chowns_sticky_tmpfs_file(service,monkeypatch):
     calls=[]
     monkeypatch.setattr('agent_demo.providers.docker',lambda *a,**k:calls.append(a))

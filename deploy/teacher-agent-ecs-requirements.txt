@@ -1,0 +1,6 @@
+# Native CPython 3.11 wheels; never reuse the old FC CPython 3.10 binaries.
+fastapi==0.115.12
+uvicorn==0.34.2
+httpx==0.28.1
+SQLAlchemy==2.0.40
+jsonschema==4.23.0

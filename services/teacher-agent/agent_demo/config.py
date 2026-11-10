@@ -50,11 +50,12 @@ class Settings:
     teaching_deployment: str = ""
     teaching_verify_key: str = ""
     teaching_tool_key: str = ""
-    max_active: int = 4
+    max_active: int = 1
     max_teacher_active: int = 1
     max_teacher_pending: int = 3
     max_teacher_sessions: int = 5
-    max_sandboxes: int = 30
+    max_sandboxes: int = 1
+    control_memory_mib: int = 1024
     sandbox_lifetime_seconds: int = 28800
     oss_bucket: str = ""
     oss_endpoint: str = ""
@@ -99,11 +100,12 @@ class Settings:
             teaching_deployment=os.getenv("TEACHING_DEPLOYMENT_ID", ""),
             teaching_verify_key=os.getenv("TEACHING_VERIFY_KEY", ""),
             teaching_tool_key=os.getenv("TEACHING_TOOL_SIGNING_KEY", ""),
-            max_active=int(os.getenv("MAX_ACTIVE_EXECUTIONS", "4")),
+            max_active=int(os.getenv("MAX_ACTIVE_EXECUTIONS", "1")),
             max_teacher_active=int(os.getenv("MAX_TEACHER_ACTIVE", "1")),
             max_teacher_pending=int(os.getenv("MAX_TEACHER_PENDING", "3")),
             max_teacher_sessions=int(os.getenv("MAX_TEACHER_SESSIONS", "5")),
-            max_sandboxes=int(os.getenv("MAX_RETAINED_SANDBOXES", "30")),
+            max_sandboxes=int(os.getenv("MAX_RETAINED_SANDBOXES", "1")),
+            control_memory_mib=int(os.getenv("SANDBOX_CONTROL_RESERVE_MIB", "1024")),
             sandbox_lifetime_seconds=int(os.getenv("SANDBOX_LIFETIME_SECONDS", "28800")),
             oss_bucket=os.getenv("AGENT_OSS_BUCKET", ""),
             oss_endpoint=os.getenv("AGENT_OSS_ENDPOINT", ""),
@@ -112,6 +114,8 @@ class Settings:
         )
 
     def validate(self):
+        if not 128 <= self.control_memory_mib <= 4096:
+            raise ValueError('SANDBOX_CONTROL_RESERVE_MIB must be between 128 and 4096')
         if self.reasoning_effort not in {'low', 'high', 'max'}:
             raise ValueError('MODEL_REASONING_EFFORT must be low, high or max')
         if self.provider not in {"docker", "fc", "fc-internal"}:

@@ -21,9 +21,47 @@ BASE = Path(__file__).resolve().parents[1]
 RUNTIME = BASE / 'sandbox_runtime'
 ROOT = Path('/tmp/teacher-agent-sandboxes')
 LEGACY_ROOT = Path('/dev/shm/teacher-agent-sandboxes')
-MEMORY_BYTES = 512 * 1024 * 1024
+# A 2 GiB ECS also hosts the web app and system services. Keep the single
+# untrusted Codex process under a 256 MiB sampled RSS ceiling.
+MEMORY_BYTES = 256 * 1024 * 1024
 WORKSPACE_BYTES = 64 * 1024 * 1024
 _instances = {}
+
+
+def searchable_directory(path, *, exist_ok=False):
+    # systemd UMask=0077 must protect files without blocking sandbox UIDs from
+    # traversing the two host-controlled parent directories.
+    path.mkdir(mode=0o711, exist_ok=exist_ok)
+    path.chmod(0o711)
+
+
+def memory_capacity(cgroup_root=Path('/sys/fs/cgroup'), proc_root=Path('/proc')):
+    """Use the tightest ancestor cgroup limit, including systemd service scopes."""
+    limits = []
+    for line in (proc_root / 'meminfo').read_text().splitlines():
+        if line.startswith('MemTotal:'):
+            limits.append(int(line.split()[1]) * 1024)
+    for line in (proc_root / 'self/cgroup').read_text().splitlines():
+        hierarchy, controllers, relative = line.split(':', 2)
+        if hierarchy == '0' and not controllers:
+            root, filename = cgroup_root, 'memory.max'
+        elif 'memory' in controllers.split(','):
+            root, filename = cgroup_root / 'memory', 'memory.limit_in_bytes'
+        else:
+            continue
+        directory = root / relative.lstrip('/')
+        if '..' in directory.parts:
+            raise RuntimeError('INVALID_MEMORY_CGROUP')
+        while True:
+            path = directory / filename
+            if path.exists():
+                value = path.read_text().strip()
+                if value.isdigit():
+                    limits.append(int(value))
+            if directory == root:
+                break
+            directory = directory.parent
+    return min(limits, default=0)
 
 
 def build_bwrap():
@@ -40,7 +78,8 @@ def command(directory, executable, *, uid=20001, socket_path=None, control_path=
         # never a bind of host procfs or a view of another process.
         '--dir', '/proc/self', '--symlink', '/opt/agent-bin/codex', '/proc/self/exe',
         '--dev', '/dev', '--size', str(WORKSPACE_BYTES), '--tmpfs', '/tmp', '--clearenv', '--setenv', 'LANG', 'C.UTF-8',
-        '--setenv', 'PATH', '/opt/agent-bin:'+str(Path(sys.executable).parent)+':/usr/bin:/bin',
+        '--dir', '/opt/python/bin', '--symlink', sys.executable, '/opt/python/bin/python3',
+        '--setenv', 'PATH', '/opt/python/bin:/opt/agent-bin:'+str(Path(sys.executable).parent)+':/usr/bin:/bin',
         '--bind', str(directory), '/runs', '--chdir', '/runs']
     mounted = []
     for root in [Path('/usr'), Path('/lib'), Path('/lib64'), Path('/bin'), Path(sys.base_prefix)]:
@@ -82,7 +121,10 @@ class Handler(__import__('http.server', fromlist=['BaseHTTPRequestHandler']).Bas
             self.send_response(reply.status)
             self.send_header('Content-Type', reply.getheader('Content-Type','application/json'))
             self.send_header('Connection','close'); self.end_headers()
-            while chunk := reply.read1(16384):
+            while True:
+                chunk = reply.read1(16384)
+                if not chunk:
+                    break
                 self.wfile.write(chunk); self.wfile.flush()
         finally:
             self.close_connection = True
@@ -100,7 +142,7 @@ class InternalProvider:
                     raise RuntimeError('SANDBOX_SUBREAPER_SETUP_FAILED')
             value = super().__new__(cls)
             value.s = settings; value.boxes = {}; value.ended = set(); value.lock = threading.RLock()
-            ROOT.mkdir(mode=0o711, exist_ok=True)
+            searchable_directory(ROOT, exist_ok=True)
             _instances[id(settings)] = value
         return _instances[id(settings)]
 
@@ -128,7 +170,7 @@ class InternalProvider:
                 raise InputError('SESSION_CLOSED')
             if sid in self.boxes:
                 return sid
-            if len(self.boxes) >= getattr(getattr(self, 's', None), 'max_sandboxes', 30):
+            if len(self.boxes) >= getattr(getattr(self, 's', None), 'max_sandboxes', 1):
                 raise InputError('SANDBOX_CAPACITY')
             root = ROOT / sid
             root.mkdir(mode=0o700)
@@ -197,7 +239,7 @@ class InternalProvider:
     def launch(self, sid, box):
         root, uid = box['root'], box['uid']
         control = ROOT / (sid + '.control')
-        control.mkdir(mode=0o755)
+        searchable_directory(control)
         box['control'] = control
         sock = ROOT / (sid+'.sock')
         proxy = Proxy(str(sock), Handler); proxy.token = ''
@@ -446,9 +488,9 @@ class InternalProvider:
         import tempfile
         if shutil.disk_usage(ROOT).free < (self.s.max_sandboxes + 2) * WORKSPACE_BYTES:
             raise RuntimeError('INSUFFICIENT_SANDBOX_DISK_CAPACITY')
-        limits = [Path('/sys/fs/cgroup/memory.max'), Path('/sys/fs/cgroup/memory/memory.limit_in_bytes')]
-        memory_limit = next((int(p.read_text()) for p in limits if p.exists() and p.read_text().strip().isdigit()), 0)
-        if memory_limit < (self.s.max_active + 4) * MEMORY_BYTES + self.s.max_sandboxes * WORKSPACE_BYTES:
+        memory_limit = memory_capacity()
+        required = self.s.control_memory_mib * 1024 * 1024 + self.s.max_active * MEMORY_BYTES + self.s.max_sandboxes * WORKSPACE_BYTES
+        if memory_limit < required:
             raise RuntimeError('INSUFFICIENT_FC_MEMORY_FOR_CONCURRENCY')
         with tempfile.TemporaryDirectory(prefix='preflight-',dir=ROOT) as work:
             directory=Path(work); os.chown(directory,20001,20001)

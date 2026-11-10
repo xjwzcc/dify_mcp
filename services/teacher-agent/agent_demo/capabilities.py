@@ -40,11 +40,19 @@ class Registry:
             for path in sorted(directory.rglob("*")):
                 if path.is_symlink():
                     raise ValueError("Skill symlinks are forbidden")
+                relative = path.relative_to(directory)
+                # BSD tar/Finder can add binary AppleDouble sidecars alongside
+                # SKILL.md. They are deployment metadata, never instructions.
+                if any(part.startswith('._') or part in {'.DS_Store', '__MACOSX', '__pycache__'} for part in relative.parts) or path.suffix in {'.pyc', '.pyo'}:
+                    continue
                 if path.is_file():
-                    data = path.read_text()
+                    try:
+                        data = path.read_text(encoding='utf-8')
+                    except UnicodeDecodeError:
+                        raise ValueError('SKILL_FILE_NOT_UTF8') from None
                     if len(data.encode()) > 128000:
                         raise ValueError("Skill file too large")
-                    files[str(path.relative_to(directory))] = data
+                    files[str(relative)] = data
             if "SKILL.md" not in files or len(files) > 30:
                 raise ValueError("Invalid skill bundle")
             instructions.append({"id": name, "files": files})

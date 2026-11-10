@@ -74,6 +74,38 @@ def test_signed_api_isolation_idempotency_and_history(teaching):
     assert tampered.status_code == 403
 
 
+@pytest.mark.parametrize('course', ['hotel', 'catering'])
+def test_metadata_sidecars_do_not_break_chinese_message_submission(teaching, backend, tmp_path, course):
+    import shutil
+    from agent_demo.capabilities import Registry
+    root = tmp_path/'deployed-config'
+    shutil.copytree(teaching.registry.root, root)
+    (root/'skills/teaching-assistant/._SKILL.md').write_bytes(b'\x00\x05\x16\x07'+b'\x00'*41+b'\xa3')
+    teaching.registry = Registry(root/'capabilities.json')
+    client = TestClient(create_app(teaching.s, teaching))
+
+    def call(path, obj=None):
+        body = json.dumps(obj, ensure_ascii=False).encode() if obj is not None else b''
+        method = 'POST' if obj is not None else 'GET'
+        return client.request(method, path, content=body, headers={'Content-Type':'application/json',
+            'X-Teacher-Assertion':signed(teaching, path, body, method, course=course)})
+
+    sid = call('/api/chat/sessions', {'request_id':'metadata-check'}) .json()['session_id']
+    message = {'request_id':'chinese-question', 'message':'今天学生的学习情况怎么样', 'page_context':{'page':'teacher'}}
+    response = call(f'/api/chat/sessions/{sid}/messages', message)
+    assert response.status_code == 202, response.text
+    eid = response.json()['execution_id']
+    worker = Worker(teaching, backend)
+    attempt, token = worker.claim()
+    worker.start(attempt, token)
+    assert not any('._' in name for name in backend.specs[attempt['id']][1])
+    worker.finish(attempt['id'], {'ok':True, 'answer':'中文回复已保存。', 'files':{}})
+    worker.cleanup(attempt['id'])
+    history = call(f'/api/chat/sessions/{sid}/history').json()['items'][0]
+    assert history['state'] == 'COMMITTED'
+    assert history['message'] == message['message'] and history['result'] == '中文回复已保存。'
+
+
 def test_teacher_capacity_and_cleanup_hold_slots(teaching, backend):
     worker = Worker(teaching, backend)
     _, a = submit(teaching, request_id='a')

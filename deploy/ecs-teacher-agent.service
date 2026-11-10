@@ -1,0 +1,30 @@
+[Unit]
+Description=Teacher Agent sandbox controller
+After=network-online.target shixunlab.service
+Requires=shixunlab.service
+PartOf=shixunlab.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/shixunlab/current/services/teacher-agent
+EnvironmentFile=/etc/shixunlab/agent-control.env
+ExecStart=/usr/bin/python3.11 /opt/shixunlab/current/deploy/ecs-agent-start.py
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=20
+KillMode=mixed
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/shixunlab-agent
+CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_SETUID CAP_SETGID CAP_KILL
+MemoryMax=896M
+TasksMax=128
+LimitNOFILE=1024
+
+[Install]
+WantedBy=multi-user.target
