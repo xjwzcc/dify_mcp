@@ -3,6 +3,7 @@
 const http=require('node:http'),fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto'),os=require('node:os');
 const {backup}=require('node:sqlite');
 const {openDatabase}=require('../../storage/database.cjs');
+const courseSession=require('../../storage/course-session.cjs');
 (async()=>{
 const {seed,evaluate}=require('./domain.cjs');
 const PORT=Number(process.env.PORT||8787),HOST=process.env.HOST||'0.0.0.0';
@@ -23,10 +24,10 @@ const now=()=>new Date().toISOString(), hash=p=>{const salt=crypto.randomBytes(1
 function checkPassword(p,h){try{const [salt,digest]=h.split(':');return crypto.timingSafeEqual(crypto.scryptSync(p,salt,64),Buffer.from(digest,'hex'));}catch{return false;}}
 sql.prepare('INSERT OR IGNORE INTO users(id,name,role,password,state,updated) VALUES(?,?,?,?,?,?)').run('teacher','授课教师','teacher',hash(config.teacherPassword),null,now());
 sql.prepare('INSERT OR IGNORE INTO assignments VALUES(?,?,?)').run('A0','完成四个业务情境；每次操作将自动同步到教师端。','2026-10-20');
-const clients=new Set(),rates=new Map();
+const rates=new Map();
 const error=(status,message)=>Object.assign(new Error(message),{status});
 function transaction(fn){sql.exec('SAVEPOINT business');try{const result=fn();sql.exec('RELEASE business');return result;}catch(e){sql.exec('ROLLBACK TO business; RELEASE business');throw e;}}
-function changed(userId){sql.exec("UPDATE metadata SET value=value+1 WHERE key='revision'");const revision=sql.prepare("SELECT value FROM metadata WHERE key='revision'").get().value;storage.afterCommit(()=>{for(const c of clients){if(c.role==='teacher'||c.id===userId||userId==='assignments')c.res.write('data: '+JSON.stringify({revision,userId})+'\n\n');}})}
+function changed(userId){sql.exec("UPDATE metadata SET value=value+1 WHERE key='revision'");}
 function audit(user,action,detail,id=crypto.randomUUID()){sql.prepare('INSERT OR IGNORE INTO logs(op_id,user_id,name,time,action,detail) VALUES(?,?,?,?,?,?)').run(id,user.id,user.name,now(),action,String(detail).slice(0,10000));}
 function cleanJSON(o,depth=0){if(depth>30)throw error(400,'数据嵌套过深');if(o&&typeof o==='object'){for(const k of Object.keys(o)){if(['__proto__','constructor','prototype'].includes(k))throw error(400,'非法数据键');cleanJSON(o[k],depth+1);}}}
 function validateState(s){
@@ -49,7 +50,7 @@ function validateState(s){
 }
 async function body(req){req.setEncoding('utf8');let data='';for await(const part of req){data+=part;if(Buffer.byteLength(data)>4*1024*1024)throw error(413,'提交数据超过4MB');}try{return JSON.parse(data||'{}');}catch{throw error(400,'请求JSON无效');}}
 function json(res,status,value,headers={}){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...headers});res.end(JSON.stringify(value));}
-function auth(req){const cookie=String(req.headers.cookie||'').split(';').map(s=>s.trim()).find(s=>s.startsWith('hotel_session='));if(!cookie)return null;const token=crypto.createHash('sha256').update(cookie.slice(14)).digest('hex');return sql.prepare('SELECT u.*,s.token AS token FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND s.expires>?').get(token,Date.now());}
+function auth(req){const cookie=String(req.headers.cookie||'').split(';').map(s=>s.trim()).find(s=>s.startsWith('hotel_session='));if(!cookie)return null;const token=courseSession.hotelKey(cookie.slice(14));const u=sql.prepare('SELECT u.*,s.token AS token FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token=? AND s.expires>?').get(token,Date.now());return u&&courseSession.allowed(u,token)?u:null;}
 const classes=require('./classes.cjs')({sql,body,json,error,audit,changed,config});
 function snapshot(user){const u=sql.prepare('SELECT * FROM users WHERE id=?').get(user.id);return{session:{id:u.id,name:u.name,teacher:u.role==='teacher',classId:u.class_id,access:classes.access(u)},student:u.role==='student'?{id:u.id,name:u.name,state:JSON.parse(u.state),version:u.version,updated:u.updated}:null,assignments:sql.prepare('SELECT * FROM assignments ORDER BY rowid').all()};}
 function requireTeacher(u){if(u.role!=='teacher')throw error(403,'仅教师可执行此操作');}
@@ -57,10 +58,11 @@ function cookie(value,secure=false){return 'hotel_session='+value+'; HttpOnly; S
 const learningRoute=require('./learning.cjs')({sql,body,json,error,audit,changed,evaluate,now,classes});
 const accountBridge=require('../../storage/account-bridge.cjs')({
  get:id=>sql.prepare('SELECT * FROM users WHERE id=?').get(id),check:(password,u)=>checkPassword(password,u.password),
- enrollment:b=>{const c=classes.get(b.classId||'default');if(!c.entry||!c.enrollment)throw error(423,'本班未开放新生注册');if(b.classCode!==c.code)throw error(403,'班级口令不正确')},
+ enrollment:b=>{const c=classes.get(b.classId||'default');if(!c.entry||!c.enrollment)throw error(423,'本班未开放新生注册')},
  create:b=>sql.prepare('INSERT INTO users(id,name,role,password,state,updated,class_id) VALUES(?,?,?,?,?,?,?)').run(b.id,b.name,b.role,hash(b.provision),b.role==='student'?JSON.stringify(seed()):null,now(),b.role==='student'?(b.classId||'default'):'default'),
- session:u=>{classes.requireAccess(u);const token=crypto.randomBytes(32).toString('hex');sql.prepare('INSERT INTO sessions VALUES(?,?,?)').run(crypto.createHash('sha256').update(token).digest('hex'),u.id,Date.now()+30*86400000);audit(u,'统一账号登录','通过账号中心进入课堂');changed(u.id);return{token,cookie:cookie(token,process.env.SECURE_COOKIE==='1')}},
- revoke:token=>sql.prepare('DELETE FROM sessions WHERE token=?').run(crypto.createHash('sha256').update(token).digest('hex'))
+ session:u=>{classes.requireAccess(u);const token=courseSession.create(u.role);sql.prepare('INSERT INTO sessions VALUES(?,?,?)').run(courseSession.hotelKey(token),u.id,Date.now()+30*86400000);audit(u,'统一账号登录','通过账号中心进入课堂');changed(u.id);return{token,cookie:cookie(token,process.env.SECURE_COOKIE==='1')}},
+ revoke:token=>sql.prepare('DELETE FROM sessions WHERE token=?').run(courseSession.hotelKey(token)),
+ revokeTeacher:id=>sql.prepare('DELETE FROM sessions WHERE user_id=?').run(id)
 });
 const agentBridge=require('../../agent/course-adapter.cjs')({db:sql,course:'hotel',evaluate});
 const server=http.createServer(storage.wrap(async(req,res)=>{
@@ -74,6 +76,7 @@ const server=http.createServer(storage.wrap(async(req,res)=>{
  if(route==='/api/agent-bridge'&&req.method==='POST')return json(res,200,agentBridge(req,await body(req)));
  if(route==='/api/account-bridge'&&req.method==='POST')return json(res,200,accountBridge(req,await body(req)));
  if(route==='/api/login'&&req.method==='POST'){
+   if(process.env.UNIFIED_ACCOUNTS==='1')throw error(410,'请使用独立的学生端或教师端登录入口');
    const ip=req.socket.remoteAddress,rate=rates.get(ip)||{n:0,at:Date.now()};if(Date.now()-rate.at>60000){rate.n=0;rate.at=Date.now();}if(++rate.n>40)throw error(429,'尝试过于频繁，请稍后重试');rates.set(ip,rate);
    const b=await body(req);const teacher=b.role==='teacher',id=teacher?'teacher':String(b.id||'').trim(),name=String(b.name||'').trim(),password=String(b.password||'');
    if(!/^[A-Za-z0-9_-]{1,40}$/.test(id)||['__proto__','constructor','prototype'].includes(id)||(!teacher&&id==='teacher'))throw error(400,'学号格式无效');
@@ -93,8 +96,8 @@ const server=http.createServer(storage.wrap(async(req,res)=>{
    if(route==='/api/session'&&req.method==='GET')return json(res,200,snapshot(u));
    if(route==='/api/logout'&&req.method==='POST'){sql.prepare('DELETE FROM sessions WHERE token=?').run(u.token);return json(res,200,{ok:true},{'Set-Cookie':'hotel_session=; Path=/hotel/; HttpOnly; SameSite=Strict; Max-Age=0'});}
    if(route==='/api/events'&&req.method==='GET'){
-     res.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-cache','Connection':'keep-alive','X-Accel-Buffering':'no'});res.write('data: '+JSON.stringify({connected:true})+'\n\n');const c={id:u.id,role:u.role,res};clients.add(c);
-     const timer=setInterval(()=>{if(storage.busy)return;if(!storage.healthy){res.end();return}if(!sql.prepare('SELECT token FROM sessions WHERE token=? AND expires>?').get(u.token,Date.now()))res.end();else res.write(': heartbeat\n\n');},20000);req.on('close',()=>{clearInterval(timer);clients.delete(c);});return;
+     // 204 also tells older EventSource clients to stop reconnecting.
+     res.writeHead(204,{'Cache-Control':'no-store'});return res.end();
    }
    if(route==='/api/state'&&req.method==='PUT'){
      if(u.role!=='student')throw error(403,'教师不能覆盖学生业务数据');const b=await body(req);if(b.studentId!==u.id)throw error(409,'浏览器已切换账号，已阻止把本页数据写入其他学生档案');
@@ -128,13 +131,14 @@ const server=http.createServer(storage.wrap(async(req,res)=>{
    throw error(404,'接口不存在');
  }
  if(req.method!=='GET')throw error(405,'请求方法无效');
+ if(route==='/teacher-chat/idle-sync.js'){res.writeHead(200,{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'no-cache'});return res.end(fs.readFileSync(path.join(__dirname,'../../shared/teacher-chat/idle-sync.js')));}
  const files={'/teacher':'index.html','/student':'index.html','/':'index.html','/index.html':'index.html','/app.js':'app.js','/online.js':'online.js','/teaching.js':'teaching.js','/classroom.js':'classroom.js','/mobile.js':'mobile.js','/mobile.css':'mobile.css'};
- if(!files[route])throw error(404,'页面不存在');const filename=path.join(__dirname,'public',files[route]);res.writeHead(200,{'Content-Type':route.endsWith('.js')?'application/javascript; charset=utf-8':route.endsWith('.css')?'text/css; charset=utf-8':'text/html; charset=utf-8','Cache-Control':'no-cache'});fs.createReadStream(filename).pipe(res);
+ if(!files[route])throw error(404,'页面不存在');const filename=path.join(__dirname,'public',files[route]);res.writeHead(200,{'Content-Type':route.endsWith('.js')?'application/javascript; charset=utf-8':route.endsWith('.css')?'text/css; charset=utf-8':'text/html; charset=utf-8','Cache-Control':'no-cache'});if(files[route]==='index.html'&&process.env.UNIFIED_ACCOUNTS==='1')return res.end(fs.readFileSync(filename,'utf8').replace('</head>','<script src="/accounts/entry.js"></script></head>'));fs.createReadStream(filename).pipe(res);
  }catch(e){if(!res.headersSent)json(res,e.status||500,{error:e.status?e.message:'服务器暂时无法处理请求，请保留页面稍后重试'});else res.end();if(!e.status)console.error(e);}
 }));
 const housekeeping=setInterval(()=>{if(!storage.remote)sql.prepare('DELETE FROM sessions WHERE expires<?').run(Date.now());for(const [k,v] of rates)if(Date.now()-v.at>60000)rates.delete(k);},60000);housekeeping.unref();
 await storage.ready();
 server.listen(PORT,HOST,()=>{console.log('Hotel HR online ready: http://localhost:'+PORT);for(const arr of Object.values(os.networkInterfaces()))for(const a of arr)if(a.family==='IPv4'&&!a.internal)console.log('LAN URL: http://'+a.address+':'+PORT);console.log('Database: '+path.join(dataDir,'hotel.sqlite'));});
-function shutdown(){for(const c of clients)c.res.end();server.close(()=>{sql.close();process.exit(0);});setTimeout(()=>process.exit(0),3000).unref();}process.on('SIGTERM',shutdown);process.on('SIGINT',shutdown);
+function shutdown(){server.close(()=>{sql.close();process.exit(0);});setTimeout(()=>process.exit(0),3000).unref();}process.on('SIGTERM',shutdown);process.on('SIGINT',shutdown);
 
 })().catch(error=>{console.error('Hotel startup failed:',error.message);process.exit(1)});

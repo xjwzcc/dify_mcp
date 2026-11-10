@@ -1,5 +1,6 @@
 'use strict';
 const { sha256, equal, selectedCookie, fail } = require('./identity.cjs');
+const courseSession = require('../storage/course-session.cjs');
 const TOOLS = new Set(['get_course_overview', 'list_students_progress', 'get_student_detail', 'list_workorders', 'get_submission_detail']);
 const pageNames = new Set(['teacher','teacherProgress','teacherPanel','workorders','reviews','interaction','classes','classControl',
   '总览','任务完成进度','学生数据面板','任务工单设计','提交与批阅','师生互动']);
@@ -22,17 +23,18 @@ module.exports = function createCourseAdapter({ db, course, evaluate, env = proc
       if (!/^[a-f0-9]{64}$/.test(input.login_ref) || typeof input.teacher_id !== 'string') fail(401, 'LOGIN_EXPIRED', '登录已失效');
       const sessions = hotel ? db.prepare('SELECT token,expires FROM sessions WHERE user_id=? AND expires>?').all(input.teacher_id, Date.now()) :
         db.prepare('SELECT token,expires FROM sessions WHERE id=? AND expires>?').all(input.teacher_id, Date.now());
-      session = sessions.find(s => equal(hotel ? s.token : sha256(s.token), input.login_ref));
+      session = sessions.find(s => courseSession.allowed({role:'teacher'},s.token,env.UNIFIED_ACCOUNTS==='1') && equal(hotel ? courseSession.reference(s.token) : sha256(s.token), input.login_ref));
       if (session) session = { ...session, id: input.teacher_id, login_ref: input.login_ref };
     } else {
       const cookie = selectedCookie(req.headers, course), token = cookie.slice(cookie.indexOf('=') + 1);
       if (!cookie || !token || token.length > 256) fail(401, 'LOGIN_REQUIRED', '请先登录教师账号');
-      const row = hotel ? db.prepare('SELECT user_id AS id,expires FROM sessions WHERE token=? AND expires>?').get(sha256(token), Date.now()) :
-        db.prepare('SELECT id,expires FROM sessions WHERE token=? AND expires>?').get(token, Date.now());
+      const row = hotel ? db.prepare('SELECT user_id AS id,expires,token FROM sessions WHERE token=? AND expires>?').get(courseSession.hotelKey(token,env.UNIFIED_ACCOUNTS==='1'), Date.now()) :
+        db.prepare('SELECT id,expires,token FROM sessions WHERE token=? AND expires>?').get(token, Date.now());
       if (row) session = { ...row, login_ref: sha256(token) };
     }
     if (!session) fail(401, 'LOGIN_EXPIRED', '登录已失效，请重新登录');
     const user = db.prepare('SELECT id,name,role FROM users WHERE id=?').get(session.id);
+    if (!courseSession.allowed(user,session.token,env.UNIFIED_ACCOUNTS==='1')) fail(401, 'LOGIN_EXPIRED', '旧教师登录已失效，请从教师入口重新登录');
     if (!user || user.role !== 'teacher') fail(403, 'TEACHER_REQUIRED', '教学助手仅向教师开放');
     return { course, teacher_id: user.id, name: user.name, role: user.role,
       login_ref: session.login_ref, login_expires_at: Math.floor(session.expires / 1000) };

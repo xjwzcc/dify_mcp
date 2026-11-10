@@ -17,7 +17,7 @@ async function start() {
   child = spawn(process.execPath, ['server.cjs'], {
     cwd: root, stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, STORAGE_BACKEND: backend, ...mock?.env, NODE_ENV: 'test', ENABLE_MCP: '0', DATA_DIR: data,
-      PORT: '19970', CATERING_PORT: '19971', HOTEL_PORT: '19972', HOST: '127.0.0.1',
+      ACCOUNTS_ADMIN_SOCKET:'/tmp/integration-admin-'+process.pid+'.sock',ACCOUNTS_PORT:'19974',PORT: '19970', CATERING_PORT: '19971', HOTEL_PORT: '19972', HOST: '127.0.0.1',
       TEACHER_PASSWORD: 'IntegrationTeacher2026!', CATERING_CLASS_CODE: 'TESTMENU',
       HOTEL_CLASS_CODE: 'TESTHOTEL', SQLITE_JOURNAL_MODE: 'DELETE', SECURE_COOKIE: '1' }
   });
@@ -50,6 +50,18 @@ async function call(route, { data: body, cookie, method, origin } = {}) {
   return { status: response.status, body: response.headers.get('content-type')?.includes('application/json') ? JSON.parse(text) : text,
     cookie: response.headers.get('set-cookie')?.split(';')[0], headers: response.headers };
 }
+async function loginCourse(course, body) {
+  if(backend==='feishu')return call(`/${course}/api/login`,{data:body});
+  const role=body.role==='teacher'?'teacher':'student';
+  const account={username:role==='teacher'?'INTEGRATIONTEACHER':body.id,name:body.name,password:body.password,confirmPassword:body.password};
+  let session=await call(`/${role}/api/login`,{data:account});
+  if(session.status!==200 && role==='student')session=await call('/student/api/register',{data:account});
+  assert.equal(session.status,200,JSON.stringify(session.body));
+  const launch=await call(`/${role}/api/enter`,{cookie:session.cookie,data:{course,classId:body.classId}});
+  assert.equal(launch.status,200,JSON.stringify(launch.body));
+  const snapshot=await call(`/${course}/api/${course==='hotel'?'session':'snapshot'}`,{cookie:launch.cookie});
+  return {...launch,body:snapshot.body};
+}
 test('merged gateway, role separation and durable classroom workflows', { timeout: 120000 }, async t => {
   if (backend === 'feishu') mock = await require('./helpers/feishu-mock.cjs').createMock();
   if (backend === 'oss') {
@@ -61,6 +73,7 @@ test('merged gateway, role separation and durable classroom workflows', { timeou
   t.after(async () => { await stop(); await mock?.close(); fs.rmSync(data, { recursive: true, force: true }); });
   await start();
   if (backend === 'oss') mock.fault.delayGets = 0;
+  if(backend!=='feishu')await require('../scripts/manage-teachers.cjs').manage({action:'create',username:'INTEGRATIONTEACHER',name:'测试教师',password:'IntegrationTeacher2026!'},'/tmp/integration-admin-'+process.pid+'.sock');
   let ct, cs, cb, ht, hs;
   await t.test('portal, role entries, assets, iframe and route isolation', async () => {
     assert.match((await call('/')).body, /吴山苑/);
@@ -77,11 +90,11 @@ test('merged gateway, role separation and durable classroom workflows', { timeou
       assert.equal((await call(route)).status, 404, route);
   });
   await t.test('teacher/student login and scoped secure cookies', async () => {
-    ct = await call('/catering/api/login', { data: { role: 'teacher', password: 'IntegrationTeacher2026!' } });
-    ht = await call('/hotel/api/login', { data: { role: 'teacher', password: 'IntegrationTeacher2026!' } });
-    cs = await call('/catering/api/login', { data: { id: 'S001', name: '集成测试甲', password: 'student123', classCode: 'TESTMENU' } });
-    cb = await call('/catering/api/login', { data: { id: 'S002', name: '集成测试乙', password: 'student123', classCode: 'TESTMENU' } });
-    hs = await call('/hotel/api/login', { data: { id: 'S001', name: '集成测试甲', password: 'student123', classCode: 'TESTHOTEL' } });
+    ct = await loginCourse('catering', { role: 'teacher', password: 'IntegrationTeacher2026!' });
+    ht = await loginCourse('hotel', { role: 'teacher', password: 'IntegrationTeacher2026!' });
+    cs = await loginCourse('catering', { id: 'S001', name: '集成测试甲', password: 'student123', classCode: 'TESTMENU' });
+    cb = await loginCourse('catering', { id: 'S002', name: '集成测试乙', password: 'student123', classCode: 'TESTMENU' });
+    hs = await loginCourse('hotel', { id: 'S001', name: '集成测试甲', password: 'student123', classCode: 'TESTHOTEL' });
     for (const login of [ct, ht, cs, cb, hs]) {
       assert.equal(login.status, 200, JSON.stringify(login.body));
       assert.match(login.headers.get('set-cookie'), /HttpOnly/);
@@ -91,7 +104,7 @@ test('merged gateway, role separation and durable classroom workflows', { timeou
     assert.match(ht.headers.get('set-cookie'), /Path=\/hotel\//);
     assert.equal((await call('/catering/api/snapshot', { cookie: ht.cookie })).status, 401);
     assert.equal((await call('/hotel/api/session', { cookie: ct.cookie })).status, 401);
-    assert.equal((await call('/catering/api/login', { data: { id: 'teacher', password: 'IntegrationTeacher2026!' } })).status, 400);
+    assert.equal((await call('/catering/api/login', { data: { id: 'teacher', password: 'IntegrationTeacher2026!' } })).status, backend==='feishu'?400:410);
     assert.equal((await call('/catering/api/task', { cookie: cs.cookie, data: { title: '越权' } })).status, 403);
     assert.equal((await call('/hotel/api/teacher', { cookie: hs.cookie })).status, 403);
     assert.equal((await call('/catering/api/message', { cookie: cs.cookie, data: { content: '跨站请求测试' }, origin: 'https://other.example' })).status, 403);
@@ -114,19 +127,18 @@ test('merged gateway, role separation and durable classroom workflows', { timeou
     assert.equal((await call('/catering/original.html', { cookie: cs.cookie })).status, 200);
     assert.equal((await call('/catering/native-bridge.js', { cookie: cs.cookie })).status, 200);
   });
-  await t.test('hotel save and streaming teacher events through gateway', async () => {
+  await t.test('hotel save and short reads without persistent teacher events through gateway', async () => {
     const state = hs.body.student.state;
     state.employees[0].base = 5123;
     assert.equal((await call('/hotel/api/state', { method: 'PUT', cookie: hs.cookie, data: {
       studentId: 'S001', version: 1, state, logs: []
     } })).status, 200);
     const events = await fetch(base + '/hotel/api/events', { headers: { Cookie: ht.cookie }, signal: AbortSignal.timeout(5000) });
-    assert.match(events.headers.get('content-type'), /text\/event-stream/);
-    const reader = events.body.getReader();
-    assert.match(Buffer.from((await reader.read()).value).toString(), /connected/);
+    assert.equal(events.status, 204);
+    assert.equal(events.body, null);
     assert.equal((await call('/hotel/api/assignments', { cookie: ht.cookie, data: { title: '合并系统专项测试课堂任务' } })).status, 200);
-    assert.match(Buffer.from((await reader.read()).value).toString(), /assignments/);
-    await reader.cancel();
+    const snapshot = await call('/hotel/api/session', {cookie: hs.cookie});
+    assert.ok(snapshot.body.assignments.some(a => a.title === '合并系统专项测试课堂任务'));
   });
   if (backend !== 'nas') await t.test('ten classes and ten concurrent student saves with checkpoint recovery', async () => {
     for (let i = 1; i < 10; i++) {
@@ -137,10 +149,10 @@ test('merged gateway, role separation and durable classroom workflows', { timeou
     }
     const list = (await call('/hotel/api/classes', { cookie: ht.cookie })).body.classes;
     assert.equal(list.length, 10);
-    const students = await Promise.all(list.map((c, i) => call('/hotel/api/login', { data: {
+    const students = await Promise.all(list.map((c, i) => loginCourse('hotel', {
       id: 'PILOT' + i, name: '模拟学生' + i, password: 'student123', classId: c.id,
       classCode: c.id === 'default' ? 'TESTHOTEL' : 'PILOTCLASS'
-    } })));
+    })));
     for (const student of students) assert.equal(student.status, 200);
     const saved = await Promise.all(students.map((student, i) => {
       student.body.student.state.employees[0].base = 6000 + i;
@@ -194,4 +206,5 @@ test('merged gateway, role separation and durable classroom workflows', { timeou
       assert.equal((await call(`/${prefix}/api/${prefix === 'hotel' ? 'session' : 'snapshot'}`, { cookie })).status, 401);
     }
   });
+
 });

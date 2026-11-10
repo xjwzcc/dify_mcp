@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
+const { clientAddress } = require('./storage/client-address.cjs');
 
 const port = Number(process.env.PORT || 9000);
 const backend = process.env.STORAGE_BACKEND || 'nas';
@@ -11,17 +12,7 @@ if (!['nas', 'feishu', 'oss'].includes(backend)) throw Error('Invalid STORAGE_BA
 const remoteStorage = backend !== 'nas';
 const dataDir = path.resolve(process.env.DATA_DIR || (remoteStorage ? '/tmp/teaching-cache' : path.join(__dirname, 'data')));
 const production = process.env.NODE_ENV === 'production';
-const internalAgent = process.env.TEACHER_AGENT_MODE === 'fc-internal';
-if (internalAgent) {
-  if (backend !== 'oss' || process.env.OSS_SINGLE_WRITER !== '1') throw Error('Internal Agent requires single-writer OSS');
-  if (!process.env.DEEPSEEK_API_KEY) throw Error('DEEPSEEK_API_KEY is required');
-  // These are instance-local trust relationships, never model/client credentials.
-  process.env.AGENT_SIGNING_KEY = crypto.randomBytes(32).toString('hex');
-  process.env.AGENT_TOOL_VERIFY_KEY = crypto.randomBytes(32).toString('hex');
-  process.env.AGENT_PERSISTENCE_KEY = crypto.randomBytes(32).toString('hex');
-  process.env.AGENT_BASE_URL = 'http://127.0.0.1:9181';
-  process.env.TEACHING_DEPLOYMENT_ID ||= 'cc_dify_mcp-hangzhou';
-}
+const { enabled: internalAgent, external: externalAgent } = require('./agent/runtime-config.cjs').configureAgent();
 if (backend === 'nas' && production && (!process.env.DATA_DIR || dataDir.startsWith('/tmp/') || dataDir.startsWith('/code/'))) {
   throw new Error('Production requires DATA_DIR on persistent storage, e.g. /mnt/teaching/data');
 }
@@ -76,7 +67,7 @@ for (const service of services) {
     PORT: String(service.port), HOST: '127.0.0.1',
     DATA_DIR: path.join(dataDir, service.name),
     TEACHER_PASSWORD: config.teacherPassword, CLASS_CODE: service.code || '',
-    ACCOUNT_BRIDGE_SECRET: bridgeSecret, AGENT_BRIDGE_SECRET: agentBridgeSecret, CATERING_PORT: String(services[0].port), HOTEL_PORT: String(services[1].port),
+    UNIFIED_ACCOUNTS: accountEnabled ? '1' : '0', ACCOUNT_BRIDGE_SECRET: bridgeSecret, AGENT_BRIDGE_SECRET: agentBridgeSecret, CATERING_PORT: String(services[0].port), HOTEL_PORT: String(services[1].port),
     SECURE_COOKIE: production ? '1' : (process.env.SECURE_COOKIE || '0')
   });
 }
@@ -98,6 +89,7 @@ function proxy(req, res, targetPort, targetPath) {
   // Keep the original Host so the applications' same-origin checks remain effective.
   delete headers['x-forwarded-host'];
   delete headers['x-forwarded-proto'];
+  headers['x-real-ip'] = clientAddress(req);
   const upstream = http.request({ hostname: '127.0.0.1', port: targetPort, method: req.method, path: targetPath, headers }, response => {
     res.writeHead(response.statusCode, response.headers);
     response.pipe(res); // SSE and database backups must remain streaming.
@@ -129,12 +121,25 @@ const server = http.createServer(async (req, res) => {
   catch { return json(res, 400, { error: '无效地址' }); }
   if (url.pathname === '/healthz') {
     const checks = await serviceHealth();
+    if (internalAgent) {
+      try { agentReady=(await fetch('http://127.0.0.1:9181/health',{signal:AbortSignal.timeout(1000)})).ok; }
+      catch { agentReady=false; }
+    }
     return json(res, checks.every(Boolean) ? 200 : 503, { ok: checks.every(Boolean), storage: backend, services: checks,
       ...(internalAgent ? {agent: agentReady && !agentFailed} : {}) });
   }
   if (url.pathname === '/' && ['GET', 'HEAD'].includes(req.method)) {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
     return res.end(req.method === 'HEAD' ? undefined : fs.readFileSync(path.join(__dirname, 'portal/index.html')));
+  }
+  if (accountEnabled && /^\/(student|teacher)(?:\/|$)/.test(url.pathname)) {
+    if (/^\/(student|teacher)$/.test(url.pathname)) { res.writeHead(308, {Location:url.pathname + '/' + url.search}); return res.end(); }
+    return proxy(req, res, services.find(s => s.name === 'accounts').port, url.pathname + url.search);
+  }
+  if (accountEnabled && url.pathname === '/accounts/' && ['GET','HEAD'].includes(req.method)) {
+    const role = url.searchParams.get('role') === 'teacher' ? 'teacher' : 'student';
+    const query = new URLSearchParams(); if (['hotel','catering'].includes(url.searchParams.get('course'))) query.set('course',url.searchParams.get('course'));
+    res.writeHead(302, {Location:'/' + role + '/' + (query.size ? '?' + query : ''), 'Cache-Control':'no-store'}); return res.end();
   }
   if (await chatGateway(req, res, url)) return;
   for (const service of services) {
@@ -146,7 +151,7 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === prefix + '/api/account-bridge') return json(res, 404, { error: '接口不存在' });
     if (url.pathname === prefix + '/api/login') {
       // Only trust FC's injected client address in the FC deployment.
-      const ip = process.env.FC_INSTANCE_ID ? req.headers['x-fc-client-ip'] || req.socket.remoteAddress : req.socket.remoteAddress;
+      const ip = clientAddress(req);
       const key = service.name + ':' + ip;
       let rate = rates.get(key);
       if (!rate || Date.now() - rate.start > 60000) rate = { start: Date.now(), count: 0 };
@@ -167,16 +172,18 @@ server.on('error', error => { console.error(error.message); shutdown(1); });
 (async () => {
   if (internalAgent) {
     persistenceServer = await require('./agent/persistence.cjs').startPersistence();
+  }
+  if (internalAgent && !externalAgent) {
     const agentRoot = path.join(__dirname,'services/teacher-agent');
     start(process.env.PYTHON || 'python3', ['-m','agent_demo.fc_main'], {
       PATH:path.join(__dirname,'bin')+':'+process.env.PATH,
       PYTHONPATH:agentRoot+'/python:'+agentRoot,
       DATA_DIR:'/tmp/teacher-agent-control', DATABASE_URL:'sqlite:////tmp/teacher-agent-control/agent.sqlite',
       SANDBOX_PROVIDER:'fc-internal', BLOB_BACKEND:'fc-oss',
-      MAX_ACTIVE_EXECUTIONS:process.env.TEACHER_AGENT_MAX_ACTIVE || '30',
-      MAX_TEACHER_ACTIVE:process.env.TEACHER_AGENT_MAX_PER_TEACHER || '5',
+      MAX_ACTIVE_EXECUTIONS:process.env.TEACHER_AGENT_MAX_ACTIVE || '1',
+      MAX_TEACHER_ACTIVE:process.env.TEACHER_AGENT_MAX_PER_TEACHER || '1',
       MAX_TEACHER_SESSIONS:'5', MAX_TEACHER_PENDING:'3',
-      MAX_RETAINED_SANDBOXES:'30', SANDBOX_LIFETIME_SECONDS:'28800',
+      MAX_RETAINED_SANDBOXES:process.env.TEACHER_AGENT_MAX_RETAINED || '1', SANDBOX_LIFETIME_SECONDS:'28800',
       CODEX_SANDBOX_MODE:'danger-full-access', ALLOW_EXTERNAL_SANDBOX:'true',
       TEACHING_MODE:'1', TEACHING_ENV:'production', TEACHING_BASE_URL:'http://127.0.0.1:'+port,
       TEACHING_VERIFY_KEY:process.env.AGENT_SIGNING_KEY, TEACHING_TOOL_SIGNING_KEY:process.env.AGENT_TOOL_VERIFY_KEY,
@@ -194,7 +201,7 @@ server.on('error', error => { console.error(error.message); shutdown(1); });
     if (internalAgent && !agentReady) {
       try { agentReady=(await fetch('http://127.0.0.1:9181/health',{signal:AbortSignal.timeout(1000)})).ok; } catch {}
     }
-    if (checks.every(Boolean) && (agentReady || agentFailed)) {
+    if (checks.every(Boolean) && (externalAgent || agentReady || agentFailed)) {
       server.listen(port, process.env.HOST || '0.0.0.0', () => console.log(`Teaching portal ready: http://localhost:${port}`));
       return;
     }

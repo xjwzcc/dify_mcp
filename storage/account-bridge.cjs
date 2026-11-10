@@ -3,7 +3,7 @@ const crypto = require('node:crypto');
 // Only the sibling account service receives this per-boot secret. The gateway
 // never exposes this route, including when called through the development proxy.
 module.exports = function accountBridge(adapter) {
-  const { get, check, create, session, revoke, enrollment } = adapter;
+  const { get, check, create, session, revoke, revokeTeacher, enrollment } = adapter;
   return (req, b) => {
     const expected = process.env.ACCOUNT_BRIDGE_SECRET || '';
     const supplied = String(req.headers['x-account-bridge'] || '');
@@ -15,6 +15,10 @@ module.exports = function accountBridge(adapter) {
     const id = String(b.id || '');
     if (!/^[A-Za-z0-9_-]{1,40}$/.test(id)) fail('账号格式无效');
     let user = get(id);
+    if (b.action === 'revoke-teacher') {
+      if (!user || user.role !== 'teacher' || !/^t_[a-f0-9]{32}$/.test(id)) fail('教师身份无效', 403);
+      revokeTeacher(id); return { ok: true };
+    }
     if (b.action === 'verify') {
       if (typeof b.password !== 'string' || b.password.length > 128 || !user || user.role !== b.role || !check(b.password, user))
         fail('原账号或密码不正确', 401);
@@ -25,7 +29,7 @@ module.exports = function accountBridge(adapter) {
       // The stable random provisioning password makes a retry safe even if the
       // course committed but the account service lost its response.
       if (user) {
-        if (user.role !== b.role || !check(b.provision, user)) fail('该学号已有档案，请选择绑定原账号', 409);
+        if (user.role !== b.role || !check(b.provision, user)) fail('该账号已有课程记录，请展开“找回原课程记录”验证原密码', 409);
       } else {
         if (b.role === 'student') enrollment(b);
         else if (!/^t_[a-f0-9]{32}$/.test(id)) fail('教师账号格式无效');

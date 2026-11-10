@@ -2,7 +2,7 @@
 const {spawn}=require('node:child_process'),fs=require('node:fs'),os=require('node:os'),path=require('node:path'),assert=require('node:assert/strict');
 const temp=fs.mkdtempSync(path.join(os.tmpdir(),'hotel-hr-test-')),port=18788,base='http://127.0.0.1:'+port;
 let child;
-async function start(){child=spawn(process.execPath,[path.join(__dirname,'server.cjs')],{env:{...process.env,PORT:String(port),HOST:'127.0.0.1',DATA_DIR:temp},stdio:['ignore','pipe','pipe']});await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Startup timeout')),10000);child.stdout.on('data',d=>{if(d.toString().includes('ready')){clearTimeout(timer);resolve();}});child.once('exit',c=>reject(Error('Server exit '+c)));});}
+async function start(){child=spawn(process.execPath,[path.join(__dirname,'server.cjs')],{env:{...process.env,PORT:String(port),HOST:'127.0.0.1',DATA_DIR:temp,TEACHER_PASSWORD:'Hotel2026!',CLASS_CODE:'HR2026',UNIFIED_ACCOUNTS:'0'},stdio:['ignore','pipe','pipe']});await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Startup timeout')),10000);child.stdout.on('data',d=>{if(d.toString().includes('ready')){clearTimeout(timer);resolve();}});child.once('exit',c=>reject(Error('Server exit '+c)));});}
 async function stop(){if(!child||child.exitCode!==null)return;const c=child;await new Promise(resolve=>{c.once('exit',resolve);c.kill();});}
 async function call(route,{cookie,method='GET',data}={}){const r=await fetch(base+route,{method,headers:{'Content-Type':'application/json',...(cookie?{Cookie:cookie}:{})},...(data?{body:JSON.stringify(data)}:{})});const b=r.headers.get('content-type')?.includes('application/json')?await r.json():null;return{status:r.status,body:b,cookie:r.headers.get('set-cookie')?.split(';')[0]};}
 async function login(id,name,password='student123'){return call('/api/login',{method:'POST',data:{role:'student',id,name,password,classCode:'HR2026'}});}
@@ -24,9 +24,8 @@ async function login(id,name,password='student123'){return call('/api/login',{me
  assert.equal((await call('/api/state',{cookie:ca,method:'PUT',data:{studentId:'T1001',version:1,state:s}})).status,409);
  assert.equal((await call('/api/tasks/submit',{cookie:ca,method:'POST',data:{studentId:'T1001',id:'task1',version:2}})).status,400);
  const result=await call('/api/teacher',{cookie:teacher});assert.equal(result.body.students.length,2);assert(result.body.logs.some(l=>l.action==='调整工资'&&l.student==='T1001'));
- const ev=await fetch(base+'/api/events',{headers:{Cookie:teacher}});const reader=ev.body.getReader();await reader.read();
+ assert.equal((await call('/api/events',{cookie:teacher})).status,204);
  assert.equal((await call('/api/assignments',{cookie:teacher,method:'POST',data:{title:'集成测试：完成招聘后提交评分'}})).status,200);
- const event=await reader.read();assert(Buffer.from(event.value).toString().includes('assignments'));await reader.cancel();
  assert((await call('/api/assignments',{cookie:ca})).body.assignments.some(x=>x.title.includes('集成测试')));
  // 教师设计 → 定向发布 → 学生提交 → 退回 → 重交 → 评分，以及留言隐私隔离。
  const orderData={title:'前台接待岗位设计测试工单',objective:'根据岗位职责分析前台接待的工作任务并给出适岗证据。',steps:'完成岗位职责设计与招聘条件核对\n记录简历筛选证据与追问问题',rubric:'岗位设计30；证据分析40；流程记录30',module:'recruit',maxScore:100,target:'T1001',due:'',status:'草稿',requireCompletion:false};
@@ -69,5 +68,5 @@ async function login(id,name,password='student123'){return call('/api/login',{me
  const migrant=await login('T1003','旧档学生');const old=grade.body.student.state;
  const migrated=await call('/api/migrate',{cookie:migrant.cookie,method:'POST',data:{id:'T1003',name:'旧档学生',state:old}});assert.equal(migrated.status,200);assert.equal(migrated.body.student.state.taskResults.task1.score,100);
  assert.equal((await call('/api/migrate',{cookie:migrant.cookie,method:'POST',data:{id:'T1003',name:'旧档学生',state:old}})).status,409);
- console.log('PASS: SQLite writes, student isolation, auth, server-side grading, teacher visibility, SSE push, assignments, stale-write protection, log idempotency, database backup, session/state/grade persistence across restart, password reset.');
+ console.log('PASS: SQLite writes, student isolation, auth, server-side grading, teacher visibility, SSE disabled, assignments, stale-write protection, log idempotency, database backup, session/state/grade persistence across restart, password reset.');
  }finally{await stop();fs.rmSync(temp,{recursive:true,force:true});}})().catch(e=>{console.error(e);process.exitCode=1;});
