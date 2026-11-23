@@ -399,7 +399,7 @@
 
 <!-- 登录 / 账号 -->
 <div id="gateWrap" class="closedwrap" style="display:none; z-index:500"></div>
-<div class="loginwrap" id="loginWrap">
+<div class="loginwrap" id="loginWrap" style="display:none">
   <div class="loginbox">
     <div class="lgeye">苏州旅游职业学院</div>
     <h2>电子菜单点餐仿真系统</h2>
@@ -2131,7 +2131,8 @@ function save(){
   try{ localStorage.setItem(lsKey(), JSON.stringify(S)); return true; }
   catch(e){ return false; }
 }
-var S = load();
+var localBusiness = location.pathname.endsWith('/customer.html');
+var S = localBusiness ? load() : defaultState();
 if(S.tables && S.tables.length) TABLES = S.tables.slice();
 function syncTables(){ S.tables = TABLES.slice(); }
 function ensureTable(t){
@@ -2379,12 +2380,15 @@ function addToCart(){
   }
   closeDlg(); render();
 }
+function newBusinessId(){
+  return Array.from(crypto.getRandomValues(new Uint8Array(8)), n=>n.toString(16).padStart(2,'0')).join('');
+}
 function submitOrder(){
   if(!cart.length) return;
   var noteEl=document.getElementById('orderNote');
   if(noteEl) cartNote=noteEl.value;
   S.seq++;
-  var no = curTable+'-'+String(S.seq).slice(-3);
+  var no = curTable+'-'+newBusinessId();
   var items = cart.map(function(c){
     var d=dishById(c.dishId);
     var price = d.specPrice && c.spec && d.specPrice[c.spec]!=null ? d.specPrice[c.spec] : d.price;
@@ -3238,12 +3242,12 @@ function saveDish(){
     specPrice={}; sp.forEach(function(s){ specPrice[s.n]=s.p; });
   }
   var cat=String(edlg.cat||'').trim()||'未分类';
-  var obj={ id: edlg.id || ('d'+Date.now().toString().slice(-8)),
+  var obj={ id: edlg.id || ('d'+newBusinessId()),
     cat:cat, name:name, emoji:edlg.emoji||'🍽️', img:edlg.img||'',
     price:Math.round(price*10)/10, cost:Math.max(0, parseFloat(edlg.cost)||0),
     unit:String(edlg.unit||'').trim(),
     desc:String(edlg.desc||'').trim(), specs:specs, specPrice:specPrice };
-  var backupMenu=JSON.stringify(S.menu), backupCats=JSON.stringify(S.cats||[]);
+  var backupMenu=S.menu.slice(), backupCats=(S.cats||[]).slice();
   if(edlg.id){
     var done=false;
     S.menu.forEach(function(d,i){ if(d.id===edlg.id){ S.menu[i]=obj; done=true; } });
@@ -3254,7 +3258,7 @@ function saveDish(){
   if(!S.cats) S.cats=[];
   if(S.cats.indexOf(cat)<0) S.cats.push(cat);
   if(!save()){
-    S.menu=JSON.parse(backupMenu); S.cats=JSON.parse(backupCats);
+    S.menu=backupMenu; S.cats=backupCats;
     uiAlert('保存失败', '本机浏览器存储空间不足，未能保存。\n请删除部分菜品照片，或减少菜品数量后再试。');
     render(); return;
   }
@@ -3269,7 +3273,7 @@ function delDish(id){
 }
 function clearMenu(){
   uiConfirm('清空菜品', '清空全部菜品，从零开始设计菜单？\n（订单数据保留；如需恢复示例菜单，可到「营业统计」点「清空全部数据」）', function(){
-    S.menu=[]; save(); render();
+    S.menu=[]; save(true); render();
   }, '清空', true);
 }
 
@@ -3314,7 +3318,7 @@ function catRen(i){
   S.menu.forEach(function(d){ if(d.cat===old) d.cat=v; });
   if(!S.cats) S.cats=[];
   var k=S.cats.indexOf(old); if(k>=0) S.cats[k]=v; else S.cats.push(v);
-  save(); openCatDlg(); render();
+  save(true); openCatDlg(); render();
 }
 function catDel(i){
   var cats=allCats(); var c=cats[i]; if(c==null) return;
@@ -3324,7 +3328,7 @@ function catDel(i){
     if(!S.cats) S.cats=[];
     var k=S.cats.indexOf(c); if(k>=0) S.cats.splice(k,1);
     if(n>0 && S.cats.indexOf('未分类')<0) S.cats.push('未分类');
-    save(); openCatDlg(); render();
+    save(true); openCatDlg(); render();
   }, '删除', true);
 }
 
@@ -4358,7 +4362,7 @@ function render(){
   paintQRs();
 }
 window.addEventListener('storage', function(ev){
-  if(ev.key===lsKey()){ S=load(); render(); }
+  if(localBusiness && ev.key===lsKey()){ S=load(); render(); }
 });
 /* 启动由教学适配层管理 */
 /* 每 30 秒刷新一次（更新"几分钟前"） */
