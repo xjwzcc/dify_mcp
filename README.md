@@ -116,13 +116,14 @@ MCP 所需第三方服务凭据沿用原 FC 环境。不要将云端配置导出
 
 ## 目录
 
-- `apps/catering/`：餐饮源码及原始文档。
+- `apps/catering/`：餐饮源码及原始文档；`public/qr.html`、`qr.js`、`qr.css` 为实时扫码点单页，`view.html` 映射原业务页供教师只读预览。
 - `apps/hotel/`：酒店人力资源源码及原始文档。
 - `portal/`、`server.cjs`：统一入口、内部服务管理、流式代理。
 - `deploy/`：FC 部署与打包说明。
 - `storage/`：可切换的 SQLite/NAS、飞书与 OSS 持久化适配器。
 - `scripts/init-feishu.cjs`、`scripts/export-feishu.cjs`：专用表初始化、停写后导出到 NAS。
 - `tests/integration.test.cjs`：合并路由、鉴权、保存、批阅、事件流及重启恢复专项测试。
+- `tests/catering-qr-order.test.cjs`：扫码点单直达后厨、历史数据不被改写、教师只读预览专项测试。
 
 原始文档记录的是独立部署方式；合并部署以本 README 和 `deploy/README.md` 为准。
 
@@ -132,6 +133,8 @@ MCP 所需第三方服务凭据沿用原 FC 环境。不要将云端配置导出
 
 ```bash
 node --test tests/integration.test.cjs
+# 餐饮扫码点单与教师只读预览：
+node --test tests/catering-qr-order.test.cjs
 # 飞书适配器改动对应的模拟故障测试：
 node --test tests/feishu-storage.test.cjs
 # OSS 签名、提交冲突、故障恢复及迁移：
@@ -145,6 +148,18 @@ TEST_STORAGE_BACKEND=feishu node --test tests/integration.test.cjs
 测试使用临时数据库和本机模拟飞书/OSS 接口，不修改真实课堂数据。
 模拟测试不覆盖飞书/OSS 真实权限、限额、网络延迟、STS 凭据刷新、FC 冷启动或真实 NAS 锁语义。
 
+
+## 餐饮实时扫码点单与教师页面预览
+
+餐饮“点单二维码”不再把整份菜单压缩进二维码，而是生成该学生店铺的服务器短链接 `/catering/qr/<码>`。顾客扫码后读取服务器上的实时菜单（桌号、规格、口味、沽清、营业状态），下单直接追加到该学生自己的存档，并立即出现在其“后厨 KDS”；顾客端每 4 秒刷新接单、制作、出餐、结账状态。旧版 `customer.html` 的订单码回传入口保留，早前打印的二维码仍可使用。
+
+二维码由 `QR_CHANNEL_KEY`（可选环境变量，默认内置稳定值）对学号做 HMAC 派生，重启不变、无需新增数据表，因此 OSS/飞书的库结构无需离线迁移。实时下单只追加新订单，不覆盖或删除学生已有菜单、订单与日志；学生的业务页每 4 秒拉取一次新订单，遇到版本冲突时只合并服务端新增订单后重试保存。
+
+教师端“学生数据面板”显示每名学生的当前页面与最近操作时间（内存态，重启后清空），“查看页面”通过 `/catering/view.html?preview=<学号>` 打开只读预览：可切换后厨、菜单、统计、桌号、体检、数据决策、二维码与顾客点餐页，所有写入控件被拦截，`save` 为空操作，不会修改学生数据。
+
+```bash
+node --test tests/catering-qr-order.test.cjs
+```
 
 ## 教师与学生登录
 

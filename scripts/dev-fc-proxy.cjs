@@ -16,6 +16,10 @@ const files = {
   ...Object.fromEntries(['app.js', 'style.css', 'native-bridge.js'].map(p => ['/catering/' + p, 'apps/catering/public/' + p])),
   '/catering/customer.html': 'apps/catering/public/original.html',
   '/catering/original.html': 'apps/catering/public/original.html',
+  '/catering/view.html': 'apps/catering/public/original.html',
+  '/catering/qr.html': 'apps/catering/public/qr.html',
+  '/catering/qr.js': 'apps/catering/public/qr.js',
+  '/catering/qr.css': 'apps/catering/public/qr.css',
   ...Object.fromEntries(['teacher', 'student', 'index.html', ''].map(p => ['/hotel/' + p, 'apps/hotel/public/index.html'])),
   ...Object.fromEntries(['app.js', 'online.js', 'teaching.js', 'classroom.js', 'mobile.js', 'mobile.css'].map(p => ['/hotel/' + p, 'apps/hotel/public/' + p]))
 };
@@ -82,6 +86,7 @@ function createProxy(upstream = DEFAULT_FC) {
     if (api) return forward(req, res);
     if (!['GET', 'HEAD'].includes(req.method)) return reply(res, 405, '静态页面仅支持读取');
     if (['/catering', '/hotel', '/accounts'].includes(pathname)) { res.writeHead(308, { Location: pathname + '/' }); return res.end(); }
+    if (/^\/catering\/qr\/[A-Za-z0-9_-]{16,64}$/.test(pathname)) return serve(req, res, files['/catering/qr.html']);
     if (!files[pathname]) return reply(res, 404, '页面不存在');
     if (pathname === '/catering/original.html') return forward(req, res, { authOnly: true });
     serve(req, res, files[pathname]);

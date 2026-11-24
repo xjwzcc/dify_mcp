@@ -1,7 +1,26 @@
-/* 原业务页面适配：保留原始 S 数据与业务函数，服务器确认后再显示同步完成。 */
+/* 原业务页面适配：保留原始 S 数据与业务函数，服务器确认后再显示同步完成。
+   三种进入方式：学生本人业务页（默认）、扫码顾客端（customer.html）、教师只读预览（view.html）。 */
 (async function(){
+  const params=new URLSearchParams(location.search||'');
+  const previewId=params.get('preview')||'';
+  const SECTION_LABEL={menu:'菜单与分类管理',guest:'顾客点餐实训',kds:'后厨 KDS',stat:'营业统计与结账',code:'点单二维码',tables:'桌号管理',check:'菜单体检',insight:'数据决策'};
   gateCheck=function(cb){if(cb)cb(false,'')};gateBoot=function(cb){cb(true)};paintSchedNote=function(){};
   if(location.pathname.endsWith('/customer.html')){loadOpen();OPEN_STATE=true;initAppBody();document.getElementById('appFooter').textContent='苏州旅游职业学院 · 教学顾客体验端 · 订单码需发送给对应小组收入，不产生真实支付';return;}
+
+  /* 文案适配：原页面里"顾客拿订单码→学生手工粘贴"的说明已不适用于实时点单，渲染后替换。 */
+  const plainRender=render;
+  render=function(){plainRender();patchCopy();};
+  function patchCopy(){
+    const tools=document.querySelector('#bossView .mgmtTools span');
+    if(tools&&tools.textContent.indexOf('订单码')>=0){
+      tools.textContent='顾客扫码下单后，订单会实时出现在「新下单」；此处仍可粘贴旧的订单码入账';
+    }
+    const tip=document.querySelector('#guestView .gtip');
+    if(tip&&tip.textContent.indexOf('订单码')>=0){
+      tip.innerHTML='这是本组设计的菜单。顾客扫「点单二维码」后可直接下单，订单会实时进入本组「后厨 KDS」，<b>无需复制粘贴订单码</b>。';
+    }
+  }
+
   const panel=document.createElement('div');
   panel.style.cssText='position:fixed;right:12px;bottom:10px;max-width:calc(100% - 24px);background:#174e3c;color:white;padding:7px 13px;border-radius:7px;z-index:900;font:12px Microsoft YaHei';
   const status=document.createElement('div');
@@ -18,6 +37,10 @@
   panel.append(status,actions);
   document.body.append(panel);
   status.textContent='正在加载服务器存档…';
+
+  /* ============ 教师只读预览：只展示学生已保存的数据，不写入 ============ */
+  if(previewId)return previewMode(panel);
+
   let ready=false;
   window.addEventListener('message',async e=>{
     if(e.origin!==location.origin||e.source!==parent||e.data?.type!=='emenu-flush')return;
@@ -162,10 +185,170 @@
   retry.onclick=()=>flush().catch(()=>{});
   backup.onclick=()=>exportData();
   logout=function(){parent.postMessage({type:'emenu-exit-business'},location.origin)};
-  const mode=new URLSearchParams(location.search).get('section')||'menu';view=mode==='guest'?'g':'b';subView=mode==='guest'?'menu':mode;
+
+  /* ===== 实时扫码点单：二维码指向本店服务端点单页，不再把整份菜单压进二维码 ===== */
+  let qrPath='';
+  try{
+    const r=await fetch('/catering/api/qr-code',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+    if(r.ok)qrPath=(await r.json()).path||'';
+  }catch(e){}
+  if(qrPath){
+    shareInfo=function(){return{url:location.origin+qrPath,lv:0,name:'实时点单',raw:0};};
+    const bossRender=renderBoss;
+    renderBoss=function(){
+      bossRender();
+      if(subView==='code'){
+        const host=document.getElementById('bossView');
+        if(host&&!host.querySelector('.realtime-note')){
+          const note=document.createElement('div');
+          note.className='qrnote realtime-note';
+          note.innerHTML='<b>实时点单已开启：</b>顾客扫码后订单会直接进入本店「后厨 KDS」，无需再复制粘贴订单码。此码长期有效，闭店时自动暂停。';
+          host.insertBefore(note,host.firstChild);
+        }
+      }
+    };
+  }
+
+  /* 让教师端看到学生此刻所在页面 */
+  function beat(){
+    if(document.hidden)return;
+    const current=view==='g'?'guest':subView;
+    fetch('/catering/api/presence',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({page:SECTION_LABEL[current]||'业务页面',section:current})}).catch(function(){});
+  }
+
+  /* 每 4 秒同步服务端新扫码订单；保存中、有未保存改动、弹层打开或页面隐藏时跳过 */
+  let pulling=false;
+  async function pull(){
+    if(document.hidden||sending||batch||dirty||pulling)return;
+    if(document.querySelector('.mask.show'))return;
+    pulling=true;
+    try{
+      const r=await fetch('/catering/api/qr-orders',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',signal:AbortSignal.timeout(8000)});
+      if(!r.ok)return;
+      const d=await r.json();
+      const known=new Set((S.orders||[]).map(o=>o.no));
+      const incoming=(Array.isArray(d.orders)?d.orders:[]).filter(o=>o&&o.no&&!known.has(o.no));
+      if(!incoming.length)return;
+      for(const o of incoming){
+        S.orders.push(o);
+        if(!baseline.orders.some(x=>x.no===o.no))baseline.orders.push(o);
+      }
+      if(Number.isSafeInteger(d.seq)&&d.seq>Number(S.seq||0))S.seq=d.seq;
+      if(Number.isSafeInteger(d.version)&&d.version>version)version=d.version;
+      render();
+      toast('收到新扫码订单：'+incoming.map(o=>o.table+' · '+o.no).join('，'));
+    }catch(e){
+    }finally{
+      pulling=false;
+    }
+  }
+
+  const mode=params.get('section')||'menu';view=mode==='guest'?'g':'b';subView=mode==='guest'?'menu':mode;
   showApp();switchView(view);status.textContent='已加载服务器存档';
+  beat();setInterval(beat,30000);
+  document.addEventListener('visibilitychange',function(){if(!document.hidden)beat();});
+  setInterval(pull,4000);
   document.getElementById('appFooter').textContent='苏州旅游职业学院 · 原项目业务模块 · 本页面仅用于教学，所有收款均为模拟';
   ready=true;
   if(!original)save();
   window.addEventListener('beforeunload',e=>{if(dirty||batch||sending){e.preventDefault();e.returnValue='尚有操作未保存';}});
+
+  /* ============ 教师只读预览 ============ */
+  async function previewMode(panel){
+    panel.style.display='none';
+    let info;
+    try{
+      const r=await fetch('/catering/api/student-view',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:previewId})});
+      info=await r.json().catch(()=>({}));
+      if(!r.ok)throw Error(info.error||'仅教师可查看学生页面');
+    }catch(err){
+      document.body.innerHTML='<div style="max-width:640px;margin:12vh auto;padding:26px;font:14px/1.9 system-ui;color:#243a36">'
+        +'<h2 style="font-size:20px;margin:0 0 14px">无法预览学生页面</h2><p>'+esc(err.message)+'</p>'
+        +'<p style="color:#78877e;margin:14px 0 0">请从教师端「学生数据面板」的「查看页面」进入。</p></div>';
+      return;
+    }
+    const state=info.state||{},src=state.original;
+    if(!src||!Array.isArray(src.menu)){
+      document.body.innerHTML='<div style="max-width:640px;margin:12vh auto;padding:26px;font:14px/1.9 system-ui;color:#243a36">'
+        +'<h2 style="font-size:20px;margin:0 0 14px">该学生尚未进入业务页面</h2>'
+        +'<p style="color:#78877e">学生首次打开餐饮实训页后，教师即可在此查看其菜单、订单与操作轨迹。</p></div>';
+      return;
+    }
+    ACC=info.user.id;ACC_NAME=info.user.name+'的餐厅';isGuest=false;
+    S=src;
+    if(S.tables&&S.tables.length)TABLES=S.tables.slice();else S.tables=TABLES.slice();
+    if(!S.voucher||typeof S.voucher!=='object')S.voucher=defaultState().voucher;
+    if(!S.cats||!S.cats.length){S.cats=[];S.menu.forEach(d=>{if(S.cats.indexOf(d.cat)<0)S.cats.push(d.cat);});if(!S.cats.length)S.cats=['热菜'];}
+    OPEN_STATE=S.open!==false;
+    setOpen=function(){toast('教师预览为只读，不会修改学生数据');};
+    save=function(){toast('教师预览为只读，不会修改学生数据');return false;};
+    logout=function(){toast('只读预览：请点击底部「返回教师端」');};
+    const openBtn=document.getElementById('openBtn');if(openBtn)openBtn.style.display='none';
+    const whoLink=document.querySelector('#appHeader .minilink');if(whoLink)whoLink.style.display='none';
+
+    const qrPath=info.qrPath||'';
+    if(qrPath){
+      shareInfo=function(){return{url:location.origin+qrPath,lv:0,name:'实时点单',raw:0};};
+      const bossRender=renderBoss;
+      renderBoss=function(){
+        bossRender();
+        if(subView==='code'){
+          const host=document.getElementById('bossView');
+          if(host&&!host.querySelector('.realtime-note')){
+            const note=document.createElement('div');
+            note.className='qrnote realtime-note';
+            note.innerHTML='<b>学生当前使用的实时点单码：</b>顾客扫码后订单直达该生「后厨 KDS」；教师预览只展示，不会写入学生数据。';
+            host.insertBefore(note,host.firstChild);
+          }
+        }
+      };
+    }
+
+    const section=params.get('section')||(info.presence&&info.presence.section)||'kds';
+    view=section==='guest'?'g':'b';
+    subView=section==='guest'?'menu':(SECTION_LABEL[section]?section:'kds');
+    showApp();
+    switchView(view);
+    document.body.classList.add('teacher-preview');
+
+    const style=document.createElement('style');
+    style.textContent='.teacher-preview-bar{position:fixed;left:0;right:0;bottom:0;z-index:1200;background:#15372d;color:#f4f1e4;display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:10px 16px;box-shadow:0 -6px 24px #0002;font:13px/1.6 Microsoft YaHei,system-ui,sans-serif}'
+      +'.teacher-preview-bar b{color:#fff}.teacher-preview-bar .meta{color:#bcd3c3}.teacher-preview-bar select{border-radius:6px;padding:4px 8px;border:0;font:inherit}'
+      +'.teacher-preview-bar button{background:#f0d9a4;color:#173f35;border-radius:6px;padding:5px 12px;font:inherit}'
+      +'.teacher-preview-bar a{color:#f0d9a4;text-decoration:none}'
+      +'body.teacher-preview{padding-bottom:60px}'
+      +'body.teacher-preview #appMain button,body.teacher-preview #appMain input,body.teacher-preview #appMain textarea,body.teacher-preview #appMain select,body.teacher-preview #appMain .opt,body.teacher-preview #appMain .addbtn,body.teacher-preview #appMain .paygo{opacity:.5;cursor:not-allowed}'
+      +'body.teacher-preview #appMain .subtab,body.teacher-preview #appMain .cat,body.teacher-preview #appMain .tchip{cursor:pointer}';
+    document.head.appendChild(style);
+
+    const sections=[['kds','后厨 KDS'],['menu','菜单管理'],['stat','营业统计'],['tables','桌号管理'],['check','菜单体检'],['insight','数据决策'],['code','点单二维码'],['guest','顾客点餐端']];
+    const picked=sections.find(([k])=>k===(view==='g'?'guest':subView))||sections[0];
+    const bar=document.createElement('div');
+    bar.className='teacher-preview-bar';
+    bar.innerHTML='<b>只读预览 · '+esc(info.user.name)+'（'+esc(info.user.id)+'）</b>'
+      +'<span class="meta">学生当前页面：'+esc((info.presence&&info.presence.page)||'未知')+'</span>'
+      +'<label>切换页面 <select id="previewSection">'+sections.map(([k,label])=>'<option value="'+k+'"'+(k===picked[0]?' selected':'')+'>'+label+'</option>').join('')+'</select></label>'
+      +'<button id="previewRefresh">刷新学生数据</button>'
+      +'<a href="/catering/teacher">返回教师端</a>';
+    document.body.appendChild(bar);
+    document.getElementById('previewRefresh').onclick=function(){location.reload()};
+    document.getElementById('previewSection').onchange=function(e){
+      const key=e.target.value;
+      if(key==='guest'){subView='menu';view='g';switchView('g');return;}
+      subView=key;view='b';switchView('b');
+    };
+
+    /* 只读：拦截业务区内的写入控件，但保留切换页签、分类和桌号 */
+    document.addEventListener('click',function(e){
+      if(!e.target.closest('#appMain'))return;
+      const blocked=e.target.closest('button,input,textarea,select,.opt,.addbtn,.paygo');
+      if(!blocked)return;
+      e.preventDefault();e.stopPropagation();
+      toast('教师预览为只读，学生数据不会被修改');
+    },true);
+    document.addEventListener('submit',function(e){if(e.target.closest('#appMain')){e.preventDefault();e.stopPropagation();}},true);
+
+    document.getElementById('appFooter').textContent='教师只读预览 · 展示学生已保存的菜单、订单与操作页面，不会写入学生数据';
+  }
 })();

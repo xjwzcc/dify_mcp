@@ -26,7 +26,18 @@ function classroom(t, fetch, { page = 'original.html?section=menu', storageQuota
     storageQuota
   });
   t.after(() => window.close());
-  window.fetch = fetch;
+  // The bridge also talks to the realtime-ordering endpoints; answer them here so each
+  // test's fetch mock only sees the save / snapshot traffic it is asserting on.
+  const auxiliary = {
+    '/catering/api/qr-code': { path: '/catering/qr/TESTTOKEN0000000000' },
+    '/catering/api/presence': { ok: true },
+    '/catering/api/qr-orders': { ok: true, version: 2, seq: 100, orders: [] }
+  };
+  window.fetch = async (url, options) => {
+    const path = String(url).split('?')[0];
+    if (Object.hasOwn(auxiliary, path)) return response(200, structuredClone(auxiliary[path]));
+    return fetch(url, options);
+  };
   window.eval(window.document.querySelector('script:not([src])').textContent);
   return window;
 }

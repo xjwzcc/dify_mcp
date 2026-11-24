@@ -24,21 +24,141 @@ const accountBridge=require('../../storage/account-bridge.cjs')({
  revokeTeacher:id=>db.prepare('DELETE FROM sessions WHERE id=?').run(id)
 });
 const agentBridge=require('../../agent/course-adapter.cjs')({db,course:'catering'});
+/* 实时扫码点单：二维码由稳定密钥对学号派生，重启不变；顾客订单只追加到该学生店铺，
+   不新建数据表、不改写历史订单，因此 OSS/飞书远端存储无需离线迁移。 */
+const DEFAULT_TABLES=['A01','A02','A03','A04','B01','B02'];
+const MODS=['少油','少盐','免葱','免蒜','加急'];
+const QR_SECRET=process.env.QR_CHANNEL_KEY||'wushanyuan-catering-qr-v1';
+const qrToken=id=>crypto.createHmac('sha256',QR_SECRET).update('qr|'+id).digest('base64url').slice(0,22);
+const presence=new Map();
+const qrRates=new Map();
+function sessionUser(req){
+  const token=(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('emenu_source_session='))?.slice(21);
+  return db.prepare('SELECT u.* FROM users u JOIN sessions s ON u.id=s.id WHERE s.token=? AND s.expires>?').get(token||'',Date.now())||null;
+}
+function qrStudent(token){
+  if(typeof token!=='string'||!/^[A-Za-z0-9_-]{16,64}$/.test(token))return null;
+  for(const row of db.prepare("SELECT id,name,state FROM users WHERE role='student'").all())
+    if(qrToken(row.id)===token)return row;
+  return null;
+}
+function qrMenu(row){
+  const state=JSON.parse(row.state||'{}'),src=state.original||{};
+  const cats=Array.isArray(src.cats)?src.cats:[],menu=Array.isArray(src.menu)?src.menu:[];
+  return{ok:true,token:qrToken(row.id),restaurant:src.restaurant||state.restaurant||(row.name+'的餐厅'),
+    student:{id:row.id,name:row.name},open:src.open!==false,
+    tables:Array.isArray(src.tables)&&src.tables.length?src.tables:DEFAULT_TABLES,cats,updated:Date.now(),
+    menu:menu.slice(0,80).map(d=>({id:String(d.id),name:String(d.name||''),cat:String(d.cat||''),
+      price:Number(d.price)||0,unit:String(d.unit||''),emoji:String(d.emoji||'🍽️'),desc:String(d.desc||'').slice(0,80),
+      soldOut:!!d.soldOut,specs:Array.isArray(d.specs)?d.specs.map(s=>String(s.n)).slice(0,8):[],
+      specPrice:d.specPrice&&typeof d.specPrice==='object'?d.specPrice:{}}))};
+}
+function qrOrder(row,b){
+  const state=JSON.parse(row.state||'{}'),src=state.original;
+  if(!src||!Array.isArray(src.menu)||!src.menu.length)fail('本店菜单尚未设计，暂不能点单',409);
+  if(src.open===false)fail('本店已暂停点单，请稍后再试',409);
+  const tables=Array.isArray(src.tables)&&src.tables.length?src.tables:DEFAULT_TABLES;
+  const table=String(b.table||'').trim();
+  if(!tables.includes(table))fail('桌号无效，请重新扫码',400);
+  const items=Array.isArray(b.items)?b.items.slice(0,30):[];
+  if(!items.length)fail('请先选择菜品',400);
+  const orders=Array.isArray(src.orders)?src.orders:[];
+  if(orders.length>=480)fail('本店订单数量已达课堂上限，请联系店员',409);
+  const built=[];
+  for(const it of items){
+    if(!it||typeof it!=='object')fail('菜品数据无效',400);
+    const d=src.menu.find(x=>x&&String(x.id)===String(it.id));
+    if(!d)fail('菜品不存在或已下架',400);
+    if(d.soldOut)fail('「'+d.name+'」已沽清',409);
+    const qty=Number(it.qty);
+    if(!Number.isInteger(qty)||qty<1||qty>20)fail('菜品数量需为 1—20 份',400);
+    let spec='',price=Number(d.price)||0;
+    if(Array.isArray(d.specs)&&d.specs.length){
+      spec=String(it.spec||d.specs[0].n);
+      if(!d.specs.some(s=>String(s.n)===spec))fail('菜品规格无效',400);
+      if(d.specPrice&&d.specPrice[spec]!=null)price=Number(d.specPrice[spec])||0;
+    }
+    const mods=Array.isArray(it.mods)?it.mods.slice(0,5).map(m=>String(m)).filter(m=>MODS.includes(m)):[];
+    built.push({name:d.name+(spec?'（'+spec+'）':''),price,qty,mods,dishId:String(d.id)});
+  }
+  const guests=Math.min(30,Math.max(1,Number.isInteger(Number(b.guests))?Number(b.guests):2));
+  const note=String(b.note||'').replace(/[\u0000-\u001f]/g,'').slice(0,200);
+  let seq=Math.max(Number(src.seq)||100,...orders.map(o=>{const m=/(\d+)$/.exec(String(o.no||''));return m?Number(m[1]):0;}))+1;
+  let no;
+  do{no=table+'-'+String(seq).slice(-3);seq+=1;}while(orders.some(o=>o&&o.no===no));
+  const now=new Date(),hm=('0'+now.getHours()).slice(-2)+':'+('0'+now.getMinutes()).slice(-2);
+  const order={no,table,items:built,orderNote:note,guests,status:'new',ts:now.getTime(),timeHM:hm};
+  const next=state;
+  next.original=Object.assign({},src,{orders:orders.concat([order]),seq});
+  /* 同步维护一份映射后的订单摘要，教师面板与营业统计无需等待学生再次保存 */
+  const mapped=built.map(i=>({...i,cost:0})),total=mapped.reduce((a,i)=>a+i.price*i.qty,0);
+  next.orders=(Array.isArray(state.orders)?state.orders:[]).concat([{id:no,table,note,items:mapped,total,payable:total,status:'待接单',time:now.toISOString()}]);
+  next.version=(Number(state.version)||0)+1;
+  db.prepare('UPDATE users SET state=? WHERE id=?').run(JSON.stringify(next),row.id);
+  return{ok:true,no,table,status:'new',total:built.reduce((a,i)=>a+i.price*i.qty,0),timeHM:hm};
+}
+function qrStatus(row,b){
+  const no=String(b.no||'');
+  const state=JSON.parse(row.state||'{}'),src=state.original||{};
+  const orders=Array.isArray(src.orders)?src.orders:[];
+  const order=orders.find(o=>o&&o.no===no);
+  if(!order)return{ok:false,no,status:'missing'};
+  const queue=order.status==='new'?orders.filter(o=>o.status==='new'&&Number(o.ts)<Number(order.ts)).length+1:0;
+  return{ok:true,no,status:order.status,table:order.table,items:order.items,orderNote:order.orderNote||'',
+    guests:order.guests||0,timeHM:order.timeHM||'',queue,payable:order.settle!=null?order.settle:null};
+}
+function qrRate(token,kind){
+  const now=Date.now();
+  let r=qrRates.get(token);
+  if(!r||now-r.at>60000)r={at:now,req:0,ord:0};
+  r.req+=1;if(kind==='order')r.ord+=1;qrRates.set(token,r);
+  if(qrRates.size>1000)for(const [k,v] of qrRates)if(now-v.at>3600000)qrRates.delete(k);
+  return kind==='order'?r.ord<=30:r.req<=1200;
+}
+function notePresence(id,page,section){
+  const now=Date.now();
+  presence.set(id,{page:String(page||'').slice(0,40),section:String(section||'').slice(0,20),at:now});
+  if(presence.size>2000)for(const [k,v] of presence)if(now-v.at>86400000)presence.delete(k);
+}
+
 const server=http.createServer(storage.wrap(async(req,res)=>{try{res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('X-Frame-Options','SAMEORIGIN');const url=new URL(req.url,'http://localhost');const route=url.pathname.replace(/^\/catering(?=\/|$)/,'')||'/';
 if(!route.startsWith('/api/')&&!['GET','HEAD'].includes(req.method))fail('页面仅支持读取',405);
 if(req.method!=='GET'&&req.headers.origin&&new URL(req.headers.origin).host!==req.headers.host)fail('拒绝跨站请求',403);
 let b={};if(req.method==='POST'){req.setEncoding('utf8');let s='';for await(const c of req){s+=c;if(s.length>16000000)fail('数据过大')}b=JSON.parse(s||'{}')}
 if(route==='/api/health'&&req.method==='GET')return send(res,200,{ok:true,product:'catering'});
 if(route.startsWith('/api/')&&req.method!==( ['/api/snapshot'].includes(route)?'GET':'POST'))fail('请求方法无效',405);
+/* 扫码顾客端公共接口：无需登录，按码限流，只读菜单 / 下单 / 查状态 */
+const qrApi=/^\/api\/qr\/([A-Za-z0-9_-]{16,64})(?:\/(order|status))?$/.exec(route);
+if(qrApi){
+  const token=qrApi[1],action=qrApi[2]||'menu',row=qrStudent(token);
+  if(!row)fail('点单二维码无效，请让店员重新生成',404);
+  if(!qrRate(token,action))fail('操作过于频繁，请稍后再试',429);
+  if(action==='menu')return send(res,200,qrMenu(row));
+  if(action==='order')return send(res,200,qrOrder(row,b));
+  return send(res,200,qrStatus(row,b));
+}
 if(route==='/api/agent-bridge')return send(res,200,agentBridge(req,b));
 if(route==='/api/account-bridge')return send(res,200,accountBridge(req,b));
 if(route==='/api/login'){if(process.env.UNIFIED_ACCOUNTS==='1')fail('请使用独立的学生端或教师端登录入口',410);const id=b.role==='teacher'?'teacher':String(b.id||'').trim();if((b.role!=='teacher'&&id==='teacher')||! /^[a-zA-Z0-9_-]{1,40}$/.test(id)||typeof b.password!=='string'||!b.password||b.password.length>128)fail('请输入有效学号与密码');let u=db.prepare('SELECT * FROM users WHERE id=?').get(id);if(!u){if(b.role==='teacher'||b.classCode!==config.classCode)fail('班级口令错误',403);if(!String(b.name||'').trim()||b.password.length<6)fail('首次进入请填姓名并设置至少6位密码');db.prepare('INSERT INTO users VALUES(?,?,?,?,?)').run(id,String(b.name).slice(0,30),'student',hash(b.password),JSON.stringify(initial()));u=db.prepare('SELECT * FROM users WHERE id=?').get(id)}if(!check(b.password,u.hash))fail('账号或密码错误',401);const token=crypto.randomBytes(32).toString('hex');db.prepare('INSERT INTO sessions(token,id,expires) VALUES(?,?,?)').run(token,id,Date.now()+8*60*60*1000);return send(res,200,{ok:true},{'Set-Cookie':'emenu_source_session='+token+'; HttpOnly; SameSite=Strict; Path=/catering/; Max-Age=28800'+(process.env.SECURE_COOKIE==='1'?'; Secure':'')})}
 if(route.startsWith('/api/')){const token=(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('emenu_source_session='))?.slice(21);const u=db.prepare('SELECT u.* FROM users u JOIN sessions s ON u.id=s.id WHERE s.token=? AND s.expires>?').get(token||'',Date.now());if(!u||!courseSession.allowed(u,token))fail('请先登录对应入口；旧教师登录已失效',401);const teacher=()=>{if(u.role!=='teacher')fail('仅教师可操作',403)};
 if(route==='/api/logout'){db.prepare('DELETE FROM sessions WHERE token=?').run(token);return send(res,200,{ok:true},{'Set-Cookie':'emenu_source_session=; Max-Age=0; HttpOnly; SameSite=Strict; Path=/catering/'})}
+if(route==='/api/qr-code'){if(u.role!=='student')fail('仅学生可生成点单码',403);return send(res,200,{ok:true,path:'/catering/qr/'+qrToken(u.id)})}
+if(route==='/api/presence'){if(u.role!=='student')fail('仅学生可同步页面状态',403);notePresence(u.id,b.page,b.section);return send(res,200,{ok:true})}
+if(route==='/api/qr-orders'){
+  if(u.role!=='student')fail('仅学生可读取扫码订单',403);
+  const st=JSON.parse(u.state||'{}'),src=st.original||{};
+  return send(res,200,{ok:true,version:Number(st.version)||0,seq:Number(src.seq)||0,orders:Array.isArray(src.orders)?src.orders:[]});
+}
+if(route==='/api/student-view'){
+  if(u.role!=='teacher')fail('仅教师可查看学生页面',403);
+  const s=db.prepare("SELECT id,name,state FROM users WHERE role='student' AND id=?").get(String(b.id||''));
+  if(!s)fail('学生不存在',404);
+  return send(res,200,{user:{id:s.id,name:s.name},state:JSON.parse(s.state||'{}'),presence:presence.get(s.id)||null,qrPath:'/catering/qr/'+qrToken(s.id)});
+}
 if(route==='/api/snapshot'){
   const snapshot={user:{id:u.id,name:u.name,role:u.role},state:JSON.parse(u.state)};
   if(url.searchParams.get('view')==='business')return send(res,200,snapshot);
-  return send(res,200,{...snapshot,tasks:rows('tasks').filter(t=>u.role==='teacher'||t.published),submissions:rows('submissions').filter(s=>u.role==='teacher'||s.studentId===u.id),messages:rows('messages').filter(m=>u.role==='teacher'||m.target==='all'||m.target===u.id),students:u.role==='teacher'?db.prepare("SELECT id,name,state FROM users WHERE role='student'").all().map(s=>({...s,state:JSON.parse(s.state)})):[]});
+  return send(res,200,{...snapshot,tasks:rows('tasks').filter(t=>u.role==='teacher'||t.published),submissions:rows('submissions').filter(s=>u.role==='teacher'||s.studentId===u.id),messages:rows('messages').filter(m=>u.role==='teacher'||m.target==='all'||m.target===u.id),students:u.role==='teacher'?db.prepare("SELECT id,name,state FROM users WHERE role='student'").all().map(s=>({...s,state:JSON.parse(s.state),presence:presence.get(s.id)||null})):[]});
 }
 if(route==='/api/business-state'){
   if(u.role!=='student'||b.studentId!==u.id)fail('请确认当前登录的是原学生账号',403);
@@ -57,7 +177,14 @@ if(route==='/api/submit'){if(u.role!=='student')fail('仅学生可提交');const
 if(route==='/api/review'){teacher();const s=rows('submissions').find(s=>s.id===b.id);if(!s)fail('提交不存在');if(!Number.isFinite(b.score)||b.score<0||b.score>100||!['已评价','退回修改'].includes(b.status)||!b.feedback?.trim())fail('请输入0—100分和反馈');put('submissions',s.id,{...s,score:b.score,feedback:b.feedback,status:b.status});return send(res,200,{ok:true})}
 if(route==='/api/message'){const target=u.role==='teacher'?b.target:u.id;if(target!=='all'&&!db.prepare("SELECT id FROM users WHERE id=? AND role='student'").get(target))fail('学生不存在');if(!b.content||b.content.trim().length<5)fail('留言至少5字');const id=crypto.randomUUID();put('messages',id,{id,target,name:u.name,role:u.role,content:b.content.slice(0,2000),time:new Date().toISOString()});return send(res,200,{ok:true})}fail('接口不存在',404)}
 if(route==='/teacher-chat/idle-sync.js'&&req.method==='GET'){res.writeHead(200,{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'no-cache'});return res.end(fs.readFileSync(path.join(__dirname,'../../shared/teacher-chat/idle-sync.js')));}
-if(route==='/original.html'){const token=(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('emenu_source_session='))?.slice(21);if(!db.prepare('SELECT id FROM sessions WHERE token=? AND expires>?').get(token||'',Date.now()))fail('请先登录',401);}const files={'/teacher':'index.html','/student':'index.html','/original.html':'original.html','/customer.html':'original.html','/native-bridge.js':'native-bridge.js','/':'index.html','/app.js':'app.js','/style.css':'style.css'};if(!files[route])fail('页面不存在',404);res.writeHead(200,{'Content-Type':route.endsWith('.js')?'text/javascript; charset=utf-8':route.endsWith('.css')?'text/css; charset=utf-8':'text/html; charset=utf-8'});let content=fs.readFileSync(path.join(__dirname,'public',files[route]));if(files[route]==='index.html'&&process.env.UNIFIED_ACCOUNTS==='1')content=content.toString().replace('</head>','<script src="/accounts/entry.js"></script></head>');res.end(content);
+const qrPage=/^\/qr\/([A-Za-z0-9_-]{16,64})$/.exec(route);
+if(qrPage&&['GET','HEAD'].includes(req.method)){
+  if(!qrStudent(qrPage[1]))fail('点单二维码无效，请让店员重新生成',404);
+  res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','X-Robots-Tag':'noindex'});
+  return res.end(req.method==='HEAD'?undefined:fs.readFileSync(path.join(__dirname,'public','qr.html')));
+}
+if(route==='/view.html'){const who=sessionUser(req);if(!who||who.role!=='teacher')fail('仅教师可查看学生页面',403)}
+if(route==='/original.html'){const who=sessionUser(req);if(!who)fail('请先登录',401);}const files={'/teacher':'index.html','/student':'index.html','/original.html':'original.html','/customer.html':'original.html','/view.html':'original.html','/native-bridge.js':'native-bridge.js','/qr.js':'qr.js','/qr.css':'qr.css','/':'index.html','/app.js':'app.js','/style.css':'style.css'};if(!files[route])fail('页面不存在',404);res.writeHead(200,{'Content-Type':route.endsWith('.js')?'text/javascript; charset=utf-8':route.endsWith('.css')?'text/css; charset=utf-8':'text/html; charset=utf-8'});let content=fs.readFileSync(path.join(__dirname,'public',files[route]));if(files[route]==='index.html'&&process.env.UNIFIED_ACCOUNTS==='1')content=content.toString().replace('</head>','<script src="/accounts/entry.js"></script></head>');res.end(content);
 }catch(e){send(res,e.status||400,{error:e.message})}}));await storage.ready();server.listen(Number(process.env.PORT||8791),process.env.HOST||'0.0.0.0',()=>console.log('电子菜单教学系统 http://localhost:'+(process.env.PORT||8791)));
 
 function shutdown(){server.close(()=>{db.close();process.exit(0)});setTimeout(()=>process.exit(0),3000).unref()}process.on('SIGTERM',shutdown);process.on('SIGINT',shutdown);
