@@ -44,7 +44,7 @@ function createProxy(upstream = DEFAULT_FC) {
     if (headers.referer) headers.referer = target.origin + '/';
     if (authOnly) { delete headers['content-length']; delete headers['transfer-encoding']; }
     const request = transport.request({ hostname: target.hostname, port: target.port || undefined,
-      method: authOnly ? 'GET' : req.method, path: authOnly ? '/catering/api/snapshot' : req.url, headers }, response => {
+      method: authOnly ? 'GET' : req.method, path: authOnly ? '/catering/api/snapshot?view=session' : req.url, headers }, response => {
       if (authOnly) {
         response.resume();
         if (response.statusCode === 200) return serve(req, res, files['/catering/original.html']);

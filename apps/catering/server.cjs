@@ -4,6 +4,7 @@ const {openDatabase}=require('../../storage/database.cjs');
 const courseSession=require('../../storage/course-session.cjs');
 const {businessState}=require('./business-state.cjs');
 const demoState=require('./demo-data.cjs');
+const {createClassroomData,studentSummary,revisionHistory}=require('./classroom-data.cjs');
 (async()=>{
 const dir=process.env.DATA_DIR||path.join(__dirname,'data');fs.mkdirSync(dir,{recursive:true});const storage=await openDatabase('catering',path.join(dir,'emenu.sqlite'));const db=storage.db;
 db.exec(`PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000; PRAGMA journal_mode=${process.env.SQLITE_JOURNAL_MODE==='DELETE'?'DELETE':'WAL'}; CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,name TEXT,role TEXT,hash TEXT,state TEXT); CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY,id TEXT); CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY,record TEXT); CREATE TABLE IF NOT EXISTS submissions(id TEXT PRIMARY KEY,record TEXT); CREATE TABLE IF NOT EXISTS messages(id TEXT PRIMARY KEY,record TEXT); CREATE TABLE IF NOT EXISTS classes(id TEXT PRIMARY KEY,record TEXT NOT NULL); CREATE TABLE IF NOT EXISTS class_students(student_id TEXT PRIMARY KEY,class_id TEXT NOT NULL);`);
@@ -17,18 +18,11 @@ const rows=t=>db.prepare('SELECT record FROM '+t).all().map(x=>JSON.parse(x.reco
 /* 班级管理：只新增班级与归班映射，不改写任何学生行，也不触碰学生的业务存档。 */
 const DEFAULT_CLASS={id:'default',name:'默认教学班',note:'未归班学生自动归入本班',createdAt:'2026-11-24T00:00:00.000Z'};
 db.prepare('INSERT OR IGNORE INTO classes VALUES(?,?)').run(DEFAULT_CLASS.id,JSON.stringify(DEFAULT_CLASS));
-const classList=()=>db.prepare('SELECT record FROM classes ORDER BY rowid').all().map(x=>JSON.parse(x.record)).map(c=>({...c,count:db.prepare("SELECT COUNT(*) n FROM users u WHERE u.role='student' AND COALESCE((SELECT class_id FROM class_students m WHERE m.student_id=u.id),'default')=?").get(c.id).n}));
+const presence=new Map();
+const classroom=createClassroomData({db,storage,presence});
+const {classList,saveStudentState,getSubmission,putSubmission,allSubmissionSummaries}=classroom;
 const classOf=id=>db.prepare('SELECT class_id FROM class_students WHERE student_id=?').get(id)?.class_id||'default';
 const classExists=id=>Boolean(db.prepare('SELECT 1 FROM classes WHERE id=?').get(id));
-/* 教师总览只传轻量摘要，学生完整业务存档按需读取，避免 31 份大存档拖慢整页。 */
-function studentSummary(row){
-  const st=JSON.parse(row.state||'{}'),orders=Array.isArray(st.orders)?st.orders:[],menu=Array.isArray(st.menu)?st.menu:[];
-  const paid=orders.filter(o=>o.status==='已结账'),served=orders.filter(o=>['待结账','已结账'].includes(o.status));
-  return{version:Number(st.version)||0,restaurant:String(st.restaurant||''),menuCount:menu.length,
-    orderCount:orders.length,servedCount:served.length,paidCount:paid.length,
-    revenue:paid.reduce((a,o)=>a+(Number(o.payable)||0),0),
-    profit:paid.reduce((a,o)=>a+(Number(o.payable)||0)-(Array.isArray(o.items)?o.items:[]).reduce((x,i)=>x+(Number(i.cost)||0)*(Number(i.qty)||0),0),0)};
-}
 function saveClass(b){
   const name=String(b.name||'').trim(),note=String(b.note||'').trim().slice(0,100);
   if(!name||name.length>30)fail('班级名称需为1—30个字符');
@@ -67,11 +61,10 @@ const MODS=['少油','少盐','免葱','免蒜','加急'];
 const PAY_METHODS={wx:'微信支付',zfb:'支付宝',cash:'现金',credit:'信用卡',debit:'储蓄卡',meituan:'美团团购',dianping:'大众点评团购'};
 const QR_SECRET=process.env.QR_CHANNEL_KEY||'wushanyuan-catering-qr-v1';
 const qrToken=id=>crypto.createHmac('sha256',QR_SECRET).update('qr|'+id).digest('base64url').slice(0,22);
-const presence=new Map();
 const qrRates=new Map();
 function sessionUser(req){
   const token=(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('emenu_source_session='))?.slice(21);
-  return db.prepare('SELECT u.* FROM users u JOIN sessions s ON u.id=s.id WHERE s.token=? AND s.expires>?').get(token||'',Date.now())||null;
+  return db.prepare('SELECT u.id,u.role FROM users u JOIN sessions s ON u.id=s.id WHERE s.token=? AND s.expires>?').get(token||'',Date.now())||null;
 }
 function qrStudent(token){
   if(typeof token!=='string'||!/^[A-Za-z0-9_-]{16,64}$/.test(token))return null;
@@ -133,7 +126,7 @@ function qrOrder(row,b){
   const mapped=built.map(i=>({...i,cost:0})),total=mapped.reduce((a,i)=>a+i.price*i.qty,0);
   next.orders=(Array.isArray(state.orders)?state.orders:[]).concat([{id:no,table,note,items:mapped,total,payable:total,status:'待接单',time:now.toISOString()}]);
   next.version=(Number(state.version)||0)+1;
-  db.prepare('UPDATE users SET state=? WHERE id=?').run(JSON.stringify(next),row.id);
+  saveStudentState(row.id,next);
   return{ok:true,no,table,status:'new',total:built.reduce((a,i)=>a+i.price*i.qty,0),timeHM:hm,payMethod:pay,payName:PAY_METHODS[pay]};
 }
 function qrStatus(row,b){
@@ -166,7 +159,7 @@ if(!route.startsWith('/api/')&&!['GET','HEAD'].includes(req.method))fail('页面
 if(req.method!=='GET'&&req.headers.origin&&new URL(req.headers.origin).host!==req.headers.host)fail('拒绝跨站请求',403);
 let b={};if(req.method==='POST'){req.setEncoding('utf8');let s='';for await(const c of req){s+=c;if(s.length>16000000)fail('数据过大')}b=JSON.parse(s||'{}')}
 if(route==='/api/health'&&req.method==='GET')return send(res,200,{ok:true,product:'catering'});
-if(route.startsWith('/api/')){const okMethod=route==='/api/classes'?['GET','POST'].includes(req.method):(['/api/snapshot','/api/teaching-demo'].includes(route)?req.method==='GET':req.method==='POST');if(!okMethod)fail('请求方法无效',405);}
+if(route.startsWith('/api/')){const okMethod=route==='/api/classes'?['GET','POST'].includes(req.method):(['/api/snapshot','/api/submission-detail','/api/teaching-demo'].includes(route)?req.method==='GET':req.method==='POST');if(!okMethod)fail('请求方法无效',405);}
 /* 扫码顾客端公共接口：无需登录，按码限流，只读菜单 / 下单 / 查状态 */
 const qrApi=/^\/api\/qr\/([A-Za-z0-9_-]{16,64})(?:\/(order|status))?$/.exec(route);
 if(qrApi){
@@ -210,26 +203,56 @@ if(route==='/api/teaching-demo'){
   if(u.role!=='teacher')fail('仅教师可打开教学演示',403);
   return send(res,200,{ok:true,user:{id:'demo',name:'教学演示'},state:{version:0,original:demoState()},demo:true});
 }
+if(route==='/api/submission-detail'){
+  const record=getSubmission(url.searchParams.get('id')||'');
+  if(!record||(u.role!=='teacher'&&record.studentId!==u.id))fail('提交不存在',404);
+  const {evidence,history,...details}=record;
+  return send(res,200,u.role==='teacher'?{...details,evidence,history:revisionHistory(record)}:details);
+}
 if(route==='/api/snapshot'){
-  const snapshot={user:{id:u.id,name:u.name,role:u.role},state:JSON.parse(u.state)};
+  const user={id:u.id,name:u.name,role:u.role};
+  const view=url.searchParams.get('view');
+  if(view==='session')return send(res,200,{user});
+  if(view==='classroom'){
+    if(u.role==='teacher'){
+      const section=url.searchParams.get('section')||'overview';
+      const tasks=()=>rows('tasks');
+      let content;
+      switch(section){
+        case 'overview': content={overview:classroom.overview(),publishedTasks:tasks().filter(t=>t.published).length}; break;
+        case 'students': content={...classroom.studentPage(url.searchParams,true),classes:classList(),publishedTasks:tasks().filter(t=>t.published).length}; break;
+        case 'classes': content={...classroom.studentPage(url.searchParams,false),classes:classList(true)}; break;
+        case 'submissions': content=classroom.submissionPage(url.searchParams); break;
+        case 'tasks': content={tasks:tasks()}; break;
+        case 'messages': content={messages:rows('messages'),recipients:db.prepare("SELECT id,name FROM users WHERE role='student' ORDER BY id").all()}; break;
+        case 'demo': content={}; break;
+        default: fail('页面不存在',404);
+      }
+      return send(res,200,{user,...content});
+    }
+    const submissions=Array.from(allSubmissionSummaries().values()).filter(s=>s.studentId===u.id);
+    return send(res,200,{user,state:JSON.parse(u.state),tasks:rows('tasks').filter(t=>t.published),submissions,
+      messages:rows('messages').filter(m=>m.target==='all'||m.target===u.id)});
+  }
+  const snapshot={user,state:JSON.parse(u.state)};
   if(url.searchParams.get('view')==='business')return send(res,200,snapshot);
-  return send(res,200,{...snapshot,tasks:rows('tasks').filter(t=>u.role==='teacher'||t.published),submissions:rows('submissions').filter(s=>u.role==='teacher'||s.studentId===u.id),messages:rows('messages').filter(m=>u.role==='teacher'||m.target==='all'||m.target===u.id),classes:u.role==='teacher'?classList():[],students:u.role==='teacher'?db.prepare("SELECT id,name,state FROM users WHERE role='student'").all().map(s=>({id:s.id,name:s.name,classId:classOf(s.id),presence:presence.get(s.id)||null,summary:studentSummary(s)})):[]});
+  return send(res,200,{...snapshot,tasks:rows('tasks').filter(t=>u.role==='teacher'||t.published),submissions:rows('submissions').filter(s=>u.role==='teacher'||s.studentId===u.id),messages:rows('messages').filter(m=>u.role==='teacher'||m.target==='all'||m.target===u.id),classes:u.role==='teacher'?classList():[],students:u.role==='teacher'?db.prepare("SELECT id,name,state FROM users WHERE role='student'").all().map(s=>({id:s.id,name:s.name,classId:classOf(s.id),presence:presence.get(s.id)||null,summary:studentSummary(JSON.parse(s.state||'{}'))})):[]});
 }
 if(route==='/api/business-state'){
   if(u.role!=='student'||b.studentId!==u.id)fail('请确认当前登录的是原学生账号',403);
   if(!Number.isSafeInteger(b.version)||b.version<0)fail('存档版本无效');
   const {state,changed,merged}=businessState(JSON.parse(u.state),b);
-  if(changed)db.prepare('UPDATE users SET state=? WHERE id=?').run(JSON.stringify(state),u.id);
+  if(changed)saveStudentState(u.id,state);
   return send(res,200,{version:state.version||0,merged});
 }
 if(route==='/api/state'){
   if(u.role!=='student')fail('仅学生可保存');
   if(b.studentId!==undefined&&b.studentId!==u.id)fail('当前登录账号已切换，请确认原学号后重试',403);
-  if(!b.state||!Array.isArray(b.state.menu)||!Array.isArray(b.state.orders)||!Array.isArray(b.state.logs)||b.state.menu.length>100||b.state.orders.length>500)fail('业务数据格式错误');for(const d of b.state.menu)if(!d.name||!Number.isFinite(d.price)||d.price<=0||!Number.isFinite(d.cost)||d.cost<0||!Number.isInteger(d.stock)||d.stock<0)fail('菜品价格、成本或库存无效');const previous=JSON.parse(db.prepare('SELECT state FROM users WHERE id=?').get(u.id).state);if((b.state.version||0)!==(previous.version||0))fail('存档已在其他页面更新，请重新进入业务页面',409);if(b.state.original){const n=b.state.original;if(!Array.isArray(n.menu)||!Array.isArray(n.orders)||!Array.isArray(n.cats)||!Number.isInteger(n.seq)||n.menu.length>100||n.orders.length>500)fail('原项目业务格式错误');for(const o of n.orders)if(!['new','cooking','done','paid'].includes(o.status)||!Array.isArray(o.items)||o.items.some(i=>!Number.isFinite(i.price)||i.price<0||!Number.isInteger(i.qty)||i.qty<1))fail('订单数据无效');}b.state.version=(previous.version||0)+1;db.prepare('UPDATE users SET state=? WHERE id=?').run(JSON.stringify(b.state),u.id);return send(res,200,{ok:true,version:b.state.version});
+  if(!b.state||!Array.isArray(b.state.menu)||!Array.isArray(b.state.orders)||!Array.isArray(b.state.logs)||b.state.menu.length>100||b.state.orders.length>500)fail('业务数据格式错误');for(const d of b.state.menu)if(!d.name||!Number.isFinite(d.price)||d.price<=0||!Number.isFinite(d.cost)||d.cost<0||!Number.isInteger(d.stock)||d.stock<0)fail('菜品价格、成本或库存无效');const previous=JSON.parse(db.prepare('SELECT state FROM users WHERE id=?').get(u.id).state);if((b.state.version||0)!==(previous.version||0))fail('存档已在其他页面更新，请重新进入业务页面',409);if(b.state.original){const n=b.state.original;if(!Array.isArray(n.menu)||!Array.isArray(n.orders)||!Array.isArray(n.cats)||!Number.isInteger(n.seq)||n.menu.length>100||n.orders.length>500)fail('原项目业务格式错误');for(const o of n.orders)if(!['new','cooking','done','paid'].includes(o.status)||!Array.isArray(o.items)||o.items.some(i=>!Number.isFinite(i.price)||i.price<0||!Number.isInteger(i.qty)||i.qty<1))fail('订单数据无效');}b.state.version=(previous.version||0)+1;saveStudentState(u.id,b.state);return send(res,200,{ok:true,version:b.state.version});
 }
-if(route==='/api/task'){teacher();if(!b.title?.trim()||!b.steps?.trim()||!b.deliverable?.trim()||!b.rubric?.trim())fail('请完善任务内容');const id=b.id||crypto.randomUUID();if(rows('submissions').some(s=>s.taskId===id))fail('已有提交，请新建工单调整评价要求');put('tasks',id,{...b,id,maxScore:100});return send(res,200,{ok:true})}
-if(route==='/api/submit'){if(u.role!=='student')fail('仅学生可提交');const task=rows('tasks').find(t=>t.id===b.taskId&&t.published);if(!task)fail('工单未发布');if(!b.content||b.content.trim().length<30)fail('成果与反思至少30字');const id=task.id+'_'+u.id,old=rows('submissions').find(s=>s.id===id);if(old&&old.status!=='退回修改')fail('已提交，等待教师处理');put('submissions',id,{id,taskId:task.id,title:task.title,studentId:u.id,name:u.name,content:b.content,status:'待批阅',score:null,feedback:'',time:new Date().toISOString(),evidence:JSON.parse(u.state),history:old?[...(old.history||[]),old]:[]});return send(res,200,{ok:true})}
-if(route==='/api/review'){teacher();const s=rows('submissions').find(s=>s.id===b.id);if(!s)fail('提交不存在');if(!Number.isFinite(b.score)||b.score<0||b.score>100||!['已评价','退回修改'].includes(b.status)||!b.feedback?.trim())fail('请输入0—100分和反馈');put('submissions',s.id,{...s,score:b.score,feedback:b.feedback,status:b.status});return send(res,200,{ok:true})}
+if(route==='/api/task'){teacher();if(!b.title?.trim()||!b.steps?.trim()||!b.deliverable?.trim()||!b.rubric?.trim())fail('请完善任务内容');const id=b.id||crypto.randomUUID();if(Array.from(allSubmissionSummaries().values()).some(s=>s.taskId===id))fail('已有提交，请新建工单调整评价要求');put('tasks',id,{...b,id,maxScore:100});return send(res,200,{ok:true})}
+if(route==='/api/submit'){if(u.role!=='student')fail('仅学生可提交');const task=rows('tasks').find(t=>t.id===b.taskId&&t.published);if(!task)fail('工单未发布');if(!b.content||b.content.trim().length<30)fail('成果与反思至少30字');const id=task.id+'_'+u.id,old=getSubmission(id);if(old&&old.status!=='退回修改')fail('已提交，等待教师处理');putSubmission({id,taskId:task.id,title:task.title,studentId:u.id,name:u.name,content:b.content,status:'待批阅',score:null,feedback:'',time:new Date().toISOString(),evidence:JSON.parse(u.state),history:old?[...revisionHistory(old),{...old,history:undefined}]:[]});return send(res,200,{ok:true})}
+if(route==='/api/review'){teacher();const s=getSubmission(b.id);if(!s)fail('提交不存在');if(!Number.isFinite(b.score)||b.score<0||b.score>100||!['已评价','退回修改'].includes(b.status)||!b.feedback?.trim())fail('请输入0—100分和反馈');putSubmission({...s,history:revisionHistory(s),score:b.score,feedback:b.feedback,status:b.status});return send(res,200,{ok:true})}
 if(route==='/api/message'){const target=u.role==='teacher'?b.target:u.id;if(target!=='all'&&!db.prepare("SELECT id FROM users WHERE id=? AND role='student'").get(target))fail('学生不存在');if(!b.content||b.content.trim().length<5)fail('留言至少5字');const id=crypto.randomUUID();put('messages',id,{id,target,name:u.name,role:u.role,content:b.content.slice(0,2000),time:new Date().toISOString()});return send(res,200,{ok:true})}fail('接口不存在',404)}
 if(route==='/teacher-chat/idle-sync.js'&&req.method==='GET'){res.writeHead(200,{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'no-cache'});return res.end(fs.readFileSync(path.join(__dirname,'../../shared/teacher-chat/idle-sync.js')));}
 const qrPage=/^\/qr\/([A-Za-z0-9_-]{16,64})$/.exec(route);

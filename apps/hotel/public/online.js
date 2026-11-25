@@ -50,7 +50,9 @@ renderLogin=function(){
  $('#loginform').onsubmit=async e=>{e.preventDefault();const button=e.target.querySelector('button[type="submit"],button');button.disabled=true;try{const values=Object.fromEntries(new FormData(e.target));const r=await api('/hotel/api/login',{method:'POST',body:JSON.stringify({...values,role:teacherMode?'teacher':'student'})});await enter(r);}catch(err){toast(err.message);button.disabled=false;}};
 };
 render=function(){
- legacy.render();const header=$('header .row');if(header)header.insertAdjacentHTML('beforeend','<a href="/accounts/">账号中心</a><span id="syncStatus" class="badge"></span>');
+ legacy.render();
+ const accountCenter=window.teachingAuth?(session.teacher?'/teacher/?next=admin':'/student/'):'/accounts/';
+ const header=$('header .row');if(header)header.insertAdjacentHTML('beforeend',`<a href="${accountCenter}">账号中心</a><span id="syncStatus" class="badge"></span>`);
  syncStatus(session.teacher?'最近同步 · 数据来自服务器':net.status);
  $('#logoutBtn').onclick=async()=>{if(!await askConfirm('退出当前账号？系统会先把待保存操作提交到服务器。'))return;try{await flush();if(window.teachingAuth)await window.teachingAuth.logout();else await api('/hotel/api/logout',{method:'POST',body:'{}'});renderLogin();}catch(e){toast('退出未完成：'+e.message);}};
  if(!session.teacher){const area=$('header>div:last-child');area.insertAdjacentHTML('beforeend','<button class="small secondary" id="syncProblemBtn">处理保存问题</button>');$('#syncProblemBtn').onclick=showSyncProblem;}

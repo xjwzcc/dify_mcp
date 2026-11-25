@@ -14,7 +14,7 @@ test('local FC proxy preserves cloud sessions and rejects foreign browser reques
       res.writeHead(200, { 'Content-Type': 'text/event-stream' });
       res.write('data: {"connected":true}\n\n'); return;
     }
-    if (req.url === '/catering/api/snapshot' && req.headers.cookie !== 'session=test') {
+    if (req.url === '/catering/api/snapshot?view=session' && req.headers.cookie !== 'session=test') {
       res.writeHead(401); return res.end('{}');
     }
     res.writeHead(200, { 'Content-Type': 'application/json',
@@ -51,7 +51,9 @@ test('local FC proxy preserves cloud sessions and rejects foreign browser reques
     assert.doesNotMatch(cookie, /Secure|Domain=/i);
   });
   await t.test('serves the account center and proxies unified account APIs', async () => {
-    assert.match(await (await fetch(base + '/accounts/')).text(), /统一账号/);
+    const accountEntry = await (await fetch(base + '/accounts/')).text();
+    assert.match(accountEntry, /href="\/student\/"/);
+    assert.match(accountEntry, /href="\/teacher\/"/);
     assert.equal((await fetch(base + '/accounts/app.js')).status, 200);
     const response = await fetch(base + '/accounts/api/session');
     assert.equal(response.status, 200); assert.equal(received.at(-1).path, '/accounts/api/session');
@@ -63,6 +65,7 @@ test('local FC proxy preserves cloud sessions and rejects foreign browser reques
     assert.equal((await fetch(base + '/catering/original.html')).status, 401);
     const ok = await fetch(base + '/catering/original.html', { headers: { Cookie: 'session=test' } });
     assert.equal(ok.status, 200); assert.match(await ok.text(), /<!doctype html/i);
+    assert.equal(received.at(-1).path, '/catering/api/snapshot?view=session');
   });
   await t.test('blocks cross-origin and DNS rebinding requests before forwarding', async () => {
     const count = received.length;

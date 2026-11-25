@@ -62,8 +62,8 @@ async function enterCourse(course, classId) {
 }
 async function signedIn(value) {
   if (value.user.role !== role) { entry(); notice('账号身份与当前入口不符，请使用对应地址登录'); return; }
+  if (params.get('next') === 'admin' && value.user.canManageTeachers) { location.replace('/teacher/admin/'); return; }
   session = value; draft = {}; dashboard();
-  if (params.get('next') === 'admin' && value.user.canManageTeachers) { location.assign('/teacher/admin/'); return; }
   if (requestedCourse) await enterCourse(requestedCourse);
 }
 app.addEventListener('click', async e => {
