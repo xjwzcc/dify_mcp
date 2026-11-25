@@ -41,6 +41,8 @@ function dashboard() {
   const u = session.user;
   app.innerHTML = `<section class="welcome"><div><span class="eyebrow">教师端</span><h1>${esc(u.name)}，欢迎回来。</h1><p>选择课程，进入教学工作台。</p></div><button class="secondary" data-logout>退出登录</button></section><p id="notice" role="alert" hidden></p><div class="course-grid">${Object.entries(courses).map(([course, [title, description]], index) => `<section class="course-card"><span class="eyebrow">0${index + 1} / 教学管理</span><h2>${title}</h2><p>${description}</p><form data-enter="${course}"><button class="primary full" type="submit">进入教师端 <span aria-hidden="true">→</span></button></form></section>`).join('')}</div><p class="account-note">当前教师账号：${esc(u.username)}</p>`;
   app.setAttribute('aria-busy', 'false');
+  const students = document.createElement('a'); students.href = '/teacher/students/'; students.className = 'secondary';
+  students.textContent = '学生账号管理'; document.querySelector('.welcome').append(students);
   if (u.canManageTeachers) {
     const link = document.createElement('a'); link.href = '/teacher/admin/'; link.className = 'secondary';
     link.textContent = '教师账号管理'; document.querySelector('.welcome').append(link);

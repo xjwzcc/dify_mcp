@@ -3,6 +3,7 @@
 (async function(){
   const params=new URLSearchParams(location.search||'');
   const previewId=params.get('preview')||'';
+  const demo=params.get('demo')==='1';
   const SECTION_LABEL={menu:'菜单与分类管理',guest:'顾客点餐实训',kds:'后厨 KDS',stat:'营业统计与结账',code:'点单二维码',tables:'桌号管理',check:'菜单体检',insight:'数据决策'};
   gateCheck=function(cb){if(cb)cb(false,'')};gateBoot=function(cb){cb(true)};paintSchedNote=function(){};
   if(location.pathname.endsWith('/customer.html')){loadOpen();OPEN_STATE=true;initAppBody();document.getElementById('appFooter').textContent='苏州旅游职业学院 · 教学顾客体验端 · 订单码需发送给对应小组收入，不产生真实支付';return;}
@@ -38,8 +39,8 @@
   document.body.append(panel);
   status.textContent='正在加载服务器存档…';
 
-  /* ============ 教师只读预览：只展示学生已保存的数据，不写入 ============ */
-  if(previewId)return previewMode(panel);
+  /* ============ 教师只读预览 / 教学演示：只展示数据，不写入 ============ */
+  if(previewId||demo)return previewMode(panel,demo);
 
   let ready=false;
   window.addEventListener('message',async e=>{
@@ -254,40 +255,46 @@
   if(!original)save();
   window.addEventListener('beforeunload',e=>{if(dirty||batch||sending){e.preventDefault();e.returnValue='尚有操作未保存';}});
 
-  /* ============ 教师只读预览 ============ */
-  async function previewMode(panel){
+  /* ============ 教师只读预览 / 教学演示 ============ */
+  async function previewMode(panel,demo){
     panel.style.display='none';
     let info;
     try{
-      const r=await fetch('/catering/api/student-view',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:previewId})});
-      info=await r.json().catch(()=>({}));
-      if(!r.ok)throw Error(info.error||'仅教师可查看学生页面');
+      if(demo){
+        const r=await fetch('/catering/api/teaching-demo',{signal:AbortSignal.timeout(15000)});
+        info=await r.json().catch(()=>({}));
+        if(!r.ok)throw Error(info.error||'仅教师可打开教学演示');
+      }else{
+        const r=await fetch('/catering/api/student-view',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:previewId})});
+        info=await r.json().catch(()=>({}));
+        if(!r.ok)throw Error(info.error||'仅教师可查看学生页面');
+      }
     }catch(err){
       document.body.innerHTML='<div style="max-width:640px;margin:12vh auto;padding:26px;font:14px/1.9 system-ui;color:#243a36">'
-        +'<h2 style="font-size:20px;margin:0 0 14px">无法预览学生页面</h2><p>'+esc(err.message)+'</p>'
-        +'<p style="color:#78877e;margin:14px 0 0">请从教师端「学生数据面板」的「查看页面」进入。</p></div>';
+        +'<h2 style="font-size:20px;margin:0 0 14px">'+(demo?'无法打开教学演示':'无法预览学生页面')+'</h2><p>'+esc(err.message)+'</p>'
+        +'<p style="color:#78877e;margin:14px 0 0">'+(demo?'请从教师端「教学演示」进入。':'请从教师端「学生数据面板」的「查看页面」进入。')+'</p></div>';
       return;
     }
     const state=info.state||{},src=state.original;
     if(!src||!Array.isArray(src.menu)){
       document.body.innerHTML='<div style="max-width:640px;margin:12vh auto;padding:26px;font:14px/1.9 system-ui;color:#243a36">'
-        +'<h2 style="font-size:20px;margin:0 0 14px">该学生尚未进入业务页面</h2>'
-        +'<p style="color:#78877e">学生首次打开餐饮实训页后，教师即可在此查看其菜单、订单与操作轨迹。</p></div>';
+        +'<h2 style="font-size:20px;margin:0 0 14px">'+(demo?'演示数据暂不可用':'该学生尚未进入业务页面')+'</h2>'
+        +'<p style="color:#78877e">'+(demo?'请稍后刷新重试。':'学生首次打开餐饮实训页后，教师即可在此查看其菜单、订单与操作轨迹。')+'</p></div>';
       return;
     }
-    ACC=info.user.id;ACC_NAME=info.user.name+'的餐厅';isGuest=false;
+    ACC=demo?'demo':info.user.id;ACC_NAME=demo?'教学演示·示范店':info.user.name+'的餐厅';isGuest=false;
     S=src;
     if(S.tables&&S.tables.length)TABLES=S.tables.slice();else S.tables=TABLES.slice();
     if(!S.voucher||typeof S.voucher!=='object')S.voucher=defaultState().voucher;
     if(!S.cats||!S.cats.length){S.cats=[];S.menu.forEach(d=>{if(S.cats.indexOf(d.cat)<0)S.cats.push(d.cat);});if(!S.cats.length)S.cats=['热菜'];}
     OPEN_STATE=S.open!==false;
-    setOpen=function(){toast('教师预览为只读，不会修改学生数据');};
-    save=function(){toast('教师预览为只读，不会修改学生数据');return false;};
-    logout=function(){toast('只读预览：请点击底部「返回教师端」');};
+    setOpen=function(){toast('只读模式，不会修改任何数据');};
+    save=function(){toast('只读模式，不会修改任何数据');return false;};
+    logout=function(){toast(demo?'教学演示只读：请点击底部「返回教师端」':'只读预览：请点击底部「返回教师端」');};
     const openBtn=document.getElementById('openBtn');if(openBtn)openBtn.style.display='none';
     const whoLink=document.querySelector('#appHeader .minilink');if(whoLink)whoLink.style.display='none';
 
-    const qrPath=info.qrPath||'';
+    const qrPath=demo?'':(info.qrPath||'');
     if(qrPath){
       shareInfo=function(){return{url:location.origin+qrPath,lv:0,name:'实时点单',raw:0};};
       const bossRender=renderBoss;
@@ -311,6 +318,7 @@
     showApp();
     switchView(view);
     document.body.classList.add('teacher-preview');
+    if(demo)document.body.classList.add('teaching-demo');
 
     const style=document.createElement('style');
     style.textContent='.teacher-preview-bar{position:fixed;left:0;right:0;bottom:0;z-index:1200;background:#15372d;color:#f4f1e4;display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:10px 16px;box-shadow:0 -6px 24px #0002;font:13px/1.6 Microsoft YaHei,system-ui,sans-serif}'
@@ -326,10 +334,10 @@
     const picked=sections.find(([k])=>k===(view==='g'?'guest':subView))||sections[0];
     const bar=document.createElement('div');
     bar.className='teacher-preview-bar';
-    bar.innerHTML='<b>只读预览 · '+esc(info.user.name)+'（'+esc(info.user.id)+'）</b>'
-      +'<span class="meta">学生当前页面：'+esc((info.presence&&info.presence.page)||'未知')+'</span>'
+    bar.innerHTML='<b>'+(demo?'教学演示 · 完整经营数据包':'只读预览 · '+esc(info.user.name)+'（'+esc(info.user.id)+'）')+'</b>'
+      +'<span class="meta">'+(demo?'30 笔订单 / 14 道菜 / 7 种支付方式，演示数据只读':'学生当前页面：'+esc((info.presence&&info.presence.page)||'未知'))+'</span>'
       +'<label>切换页面 <select id="previewSection">'+sections.map(([k,label])=>'<option value="'+k+'"'+(k===picked[0]?' selected':'')+'>'+label+'</option>').join('')+'</select></label>'
-      +'<button id="previewRefresh">刷新学生数据</button>'
+      +'<button id="previewRefresh">'+(demo?'重置演示数据':'刷新学生数据')+'</button>'
       +'<a href="/catering/teacher">返回教师端</a>';
     document.body.appendChild(bar);
     document.getElementById('previewRefresh').onclick=function(){location.reload()};
@@ -345,10 +353,10 @@
       const blocked=e.target.closest('button,input,textarea,select,.opt,.addbtn,.paygo');
       if(!blocked)return;
       e.preventDefault();e.stopPropagation();
-      toast('教师预览为只读，学生数据不会被修改');
+      toast(demo?'教学演示为只读，不会写入任何学生数据':'教师预览为只读，学生数据不会被修改');
     },true);
     document.addEventListener('submit',function(e){if(e.target.closest('#appMain')){e.preventDefault();e.stopPropagation();}},true);
 
-    document.getElementById('appFooter').textContent='教师只读预览 · 展示学生已保存的菜单、订单与操作页面，不会写入学生数据';
+    document.getElementById('appFooter').textContent=demo?'教学演示 · 独立示例经营数据，只读展示，不写入任何学生账号':'教师只读预览 · 展示学生已保存的菜单、订单与操作页面，不会写入学生数据';
   }
 })();

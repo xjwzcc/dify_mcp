@@ -2243,7 +2243,7 @@ function renderGuest(){
     var hasDue = mine.some(function(o){ return o.status==='done'; });
     if(hasDue){
       h += '<div class="payhint">🔔 本桌有菜品已上齐，点下方订单的「去支付」即可结账'
-        + '<span style="color:#9AA3AD;font-weight:400;font-size:11.5px;margin-left:6px;">支持微信 / 支付宝 / 信用卡 / 储蓄卡</span></div>';
+        + '<span style="color:#9AA3AD;font-weight:400;font-size:11.5px;margin-left:6px;">支持微信 / 支付宝 / 信用卡 / 储蓄卡 / 现金</span></div>';
     }
     h += '<div class="myorders"><h3>本桌订单（'+esc(curTable)+'）</h3>';
     mine.forEach(function(o){
@@ -2253,7 +2253,8 @@ function renderGuest(){
         + '<span class="badge '+st[1]+'">'+st[0]+'</span>'
         + '<span style="color:#9AA3AD;font-size:12px;">'+esc(o.timeHM)+'</span></div>'
         + '<div class="body">'+o.items.map(function(it){ return esc(it.qty)+'× '+esc(it.name)+(it.mods&&it.mods.length?'（'+esc(it.mods.join('、'))+'）':''); }).join('；')+'</div>'
-        + (o.status==='done' ? '<button class="paygo" onclick="openPayDlg(\''+o.no+'\')">💳 去支付（微信 / 支付宝 / 信用卡 / 储蓄卡）</button>' : '')
+        + (o.status!=='paid'&&o.payMethod ? '<div style="color:#1E7A3C;font-size:12px;margin-top:5px;">顾客预选支付：'+(PAY_NAME[o.payMethod]||esc(o.payMethod))+'</div>' : '')
+        + (o.status==='done' ? '<button class="paygo" onclick="openPayDlg(\''+o.no+'\')">💳 去支付（微信 / 支付宝 / 信用卡 / 储蓄卡 / 现金）</button>' : '')
         + '</div>';
     });
     h += '</div>';
@@ -2432,6 +2433,7 @@ function renderBoss(){
           h+='<div class="li">'+it.qty+' × '+esc(it.name)+(it.mods&&it.mods.length?' <small>'+esc(it.mods.join('、'))+'</small>':'')+'</div>';
         });
         if(o.orderNote) h+='<div class="note">备注：'+esc(o.orderNote)+'</div>';
+        if(o.payMethod && o.status!=='paid') h+='<div class="note" style="color:#1E7A3C;">顾客预选支付：'+(PAY_NAME[o.payMethod]||esc(o.payMethod))+'（结账时由收银台确认）</div>';
         if(o.status==='new') h+='<button class="kbtn kb1" onclick="setSt(\''+o.no+'\',\'cooking\')">开始制作</button>';
         if(o.status==='cooking') h+='<button class="kbtn kb2" onclick="setSt(\''+o.no+'\',\'done\')">出餐完成</button>';
         if(o.status==='done') h+='<button class="kbtn kb3" onclick="openPayDlg(\''+o.no+'\')">顾客结账 · 收款</button>';
@@ -2702,9 +2704,10 @@ var PAY_METHODS = [
   {k:'credit', n:'信用卡',   e:'💳', d:'插卡 / 挥卡'},
   {k:'debit',  n:'储蓄卡',   e:'🏦', d:'插卡 / 密码'},
   {k:'meituan',n:'美团团购', e:'🟡', d:'团购券核销'},
-  {k:'dianping',n:'大众点评团购', e:'🟠', d:'团购券核销'}
+  {k:'dianping',n:'大众点评团购', e:'🟠', d:'团购券核销'},
+  {k:'cash',   n:'现金',     e:'💵', d:'现金收款'}
 ];
-var PAY_NAME = {wx:'微信支付', zfb:'支付宝', credit:'信用卡', debit:'储蓄卡', meituan:'美团团购', dianping:'大众点评团购'};
+var PAY_NAME = {wx:'微信支付', zfb:'支付宝', credit:'信用卡', debit:'储蓄卡', meituan:'美团团购', dianping:'大众点评团购', cash:'现金'};
 var payDlg = null;
 function orderAmt(o){ var a=0; o.items.forEach(function(it){ a+=it.price*it.qty; }); return a; }
 function openPayDlg(no){

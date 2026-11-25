@@ -5,12 +5,15 @@
   const API='/catering/api/qr/'+token;
   const app=document.getElementById('app'),sheetHost=document.getElementById('sheet');
   const MODS=['少油','少盐','免葱','免蒜','加急'];
+  /* 顾客点单时先选支付方式，随订单一起送到后厨与收银台（真实结账仍以收银台为准） */
+  const PAYS=[{k:'wx',n:'微信支付',e:'💬'},{k:'zfb',n:'支付宝',e:'🅰️'},{k:'cash',n:'现金',e:'💵'},{k:'credit',n:'信用卡',e:'💳'},{k:'debit',n:'储蓄卡',e:'🏦'},{k:'meituan',n:'美团团购',e:'🟡'},{k:'dianping',n:'大众点评',e:'🟠'}];
+  const PAY_NAME=Object.fromEntries(PAYS.map(p=>[p.k,p.n]));
   const STATUS_TEXT={new:'已下单，等待接单',cooking:'后厨制作中',done:'已出餐，等待结账',paid:'已结账',missing:'订单已被店员重置'};
   const STATUS_PILL={new:'待接单',cooking:'制作中',done:'待结账',paid:'已结账',missing:'已失效'};
   const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const money=n=>'¥'+Number(n||0).toFixed(2);
   const storeKey='catering-qr-'+token;
-  let meta=null,cart=[],table='',guests=2,note='',cat='',view='menu',order=null,sheet=null,submitting=false,timer=0;
+  let meta=null,cart=[],table='',guests=2,note='',cat='',pay='wx',view='menu',order=null,sheet=null,submitting=false,timer=0;
 
   if(!token){app.innerHTML='<div class="empty"><h2>二维码无效</h2><p>请重新扫描餐桌上的点单二维码。</p></div>';return;}
 
@@ -21,7 +24,7 @@
     if(!r.ok)throw Error(j.error||('请求失败（'+r.status+'）'));
     return j;
   }
-  function persist(){try{localStorage.setItem(storeKey,JSON.stringify({table,guests,note,cat,cart,order}))}catch(e){}}
+  function persist(){try{localStorage.setItem(storeKey,JSON.stringify({table,guests,note,cat,pay,cart,order}))}catch(e){}}
   function restore(){
     try{
       const saved=JSON.parse(localStorage.getItem(storeKey)||'{}');
@@ -29,6 +32,7 @@
       if(Number.isInteger(saved.guests))guests=Math.min(30,Math.max(1,saved.guests));
       if(typeof saved.note==='string')note=saved.note.slice(0,200);
       if(typeof saved.cat==='string')cat=saved.cat;
+      if(typeof saved.pay==='string'&&PAY_NAME[saved.pay])pay=saved.pay;
       if(Array.isArray(saved.cart))cart=saved.cart.filter(i=>i&&typeof i.id==='string'&&Number.isInteger(i.qty)&&i.qty>0).slice(0,20);
       if(saved.order&&saved.order.no)order=saved.order;
     }catch(e){}
@@ -100,6 +104,8 @@
       +'<main class="cartpage">'
       +'<h2>确认订单</h2>'
       +'<div class="tables"><span>桌号</span><div class="chips">'+meta.tables.map(t=>'<button class="tchip'+(t===table?' on':'')+'" data-act="table" data-table="'+esc(t)+'">'+esc(t)+'</button>').join('')+'</div></div>'
+      +'<section class="pays"><span>支付方式</span><div class="chips">'+PAYS.map(p=>'<button class="pchip'+(p.k===pay?' on':'')+'" data-act="pay" data-pay="'+p.k+'">'+p.e+' '+p.n+'</button>').join('')+'</div>'
+      +'<p class="muted">先选一种支付方式随订单送到后厨；实际结账仍由收银台确认。</p></section>'
       +'<ul class="lines">'+(ls.length?ls.map(l=>'<li><div><b>'+esc(l.d.name)+(l.spec?'（'+esc(l.spec)+'）':'')+'</b><span>'+money(l.price)+' × '+l.qty+'</span></div>'
         +'<div class="qty"><button data-act="minus" data-i="'+l.idx+'">−</button><span>'+l.qty+'</span><button data-act="plus" data-i="'+l.idx+'">＋</button></div></li>').join(''):'<li class="empty">购物车为空</li>')+'</ul>'
       +'<div class="form"><label>用餐人数<input id="guests" type="number" min="1" max="30" step="1" value="'+guests+'"></label>'
@@ -120,6 +126,7 @@
       +'<h2>已发送到后厨</h2>'
       +'<div class="ono">'+esc(order.no)+'</div>'
       +'<p class="meta">桌 '+esc(order.table||table)+' · '+esc(order.timeHM||'')+' · '+esc(order.guests||guests)+' 人</p>'
+      +'<p class="meta">支付方式：<b>'+esc(order.payName||PAY_NAME[order.payMethod]||'到店选择')+'</b>（到店结账时由店员确认）</p>'
       +'<div class="status" id="statusBox">'
       +'<span class="pill" id="statusPill">'+esc(STATUS_PILL[order.status]||'待接单')+'</span>'
       +'<p id="statusText">'+esc(STATUS_TEXT[order.status]||'')+'</p>'
@@ -139,6 +146,7 @@
 
   function act(a,b){
     if(a==='table'){table=b.dataset.table;persist();render();return;}
+    if(a==='pay'){pay=b.dataset.pay;persist();render();return;}
     if(a==='cat'){cat=b.dataset.cat;persist();render();return;}
     if(a==='add'){pickDish(b.dataset.id);return;}
     if(a==='cart'){view='cart';render();return;}
@@ -200,8 +208,8 @@
     const btn=app.querySelector('[data-act="submit"]');
     if(btn){btn.disabled=true;btn.textContent='正在发送到后厨…';}
     try{
-      const result=await api('/order',{table,guests,note,items:cart.map(i=>({id:i.id,spec:i.spec,mods:i.mods,qty:i.qty}))});
-      order={no:result.no,table:result.table,guests,timeHM:result.timeHM,status:'new',items:lines().map(l=>({name:l.d.name+(l.spec?'（'+l.spec+'）':''),price:l.price,qty:l.qty})),note};
+      const result=await api('/order',{table,guests,note,pay,items:cart.map(i=>({id:i.id,spec:i.spec,mods:i.mods,qty:i.qty}))});
+      order={no:result.no,table:result.table,guests,timeHM:result.timeHM,status:'new',payMethod:pay,payName:PAY_NAME[pay]||pay,items:lines().map(l=>({name:l.d.name+(l.spec?'（'+l.spec+'）':''),price:l.price,qty:l.qty})),note};
       cart=[];view='done';persist();render();
     }catch(err){
       toast(err.message);

@@ -3,9 +3,10 @@ const http=require('node:http'),fs=require('node:fs'),path=require('node:path'),
 const {openDatabase}=require('../../storage/database.cjs');
 const courseSession=require('../../storage/course-session.cjs');
 const {businessState}=require('./business-state.cjs');
+const demoState=require('./demo-data.cjs');
 (async()=>{
 const dir=process.env.DATA_DIR||path.join(__dirname,'data');fs.mkdirSync(dir,{recursive:true});const storage=await openDatabase('catering',path.join(dir,'emenu.sqlite'));const db=storage.db;
-db.exec(`PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000; PRAGMA journal_mode=${process.env.SQLITE_JOURNAL_MODE==='DELETE'?'DELETE':'WAL'}; CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,name TEXT,role TEXT,hash TEXT,state TEXT); CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY,id TEXT); CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY,record TEXT); CREATE TABLE IF NOT EXISTS submissions(id TEXT PRIMARY KEY,record TEXT); CREATE TABLE IF NOT EXISTS messages(id TEXT PRIMARY KEY,record TEXT);`);
+db.exec(`PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000; PRAGMA journal_mode=${process.env.SQLITE_JOURNAL_MODE==='DELETE'?'DELETE':'WAL'}; CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,name TEXT,role TEXT,hash TEXT,state TEXT); CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY,id TEXT); CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY,record TEXT); CREATE TABLE IF NOT EXISTS submissions(id TEXT PRIMARY KEY,record TEXT); CREATE TABLE IF NOT EXISTS messages(id TEXT PRIMARY KEY,record TEXT); CREATE TABLE IF NOT EXISTS classes(id TEXT PRIMARY KEY,record TEXT NOT NULL); CREATE TABLE IF NOT EXISTS class_students(student_id TEXT PRIMARY KEY,class_id TEXT NOT NULL);`);
 if(!db.prepare('PRAGMA table_info(sessions)').all().some(c=>c.name==='expires'))db.exec('ALTER TABLE sessions ADD COLUMN expires INTEGER NOT NULL DEFAULT 0');
 const hash=p=>{const s=crypto.randomBytes(16).toString('hex');return s+':'+crypto.scryptSync(p,s,32).toString('hex')},check=(p,h)=>{const [s,k]=h.split(':');return crypto.timingSafeEqual(Buffer.from(k,'hex'),crypto.scryptSync(p,s,32))};
 const cfg=path.join(dir,'login.json');if(!storage.remote&&!fs.existsSync(cfg))fs.writeFileSync(cfg,JSON.stringify({teacherPassword:process.env.TEACHER_PASSWORD||crypto.randomBytes(18).toString('base64url'),classCode:process.env.CLASS_CODE||crypto.randomBytes(9).toString('base64url')},null,2));const config=storage.remote?{teacherPassword:process.env.TEACHER_PASSWORD,classCode:process.env.CLASS_CODE}:JSON.parse(fs.readFileSync(cfg));
@@ -13,6 +14,31 @@ db.prepare('INSERT OR IGNORE INTO users VALUES(?,?,?,?,?)').run('teacher','授�
 const initial=()=>{const original=require('./native-seed.cjs')();return{version:0,restaurant:'吴山苑餐厅',original,menu:original.menu.map(d=>({id:d.id,name:d.name,category:d.cat,price:d.price,cost:0,stock:0,description:d.desc,on:true})),orders:[],logs:[]}};
 for(const [id,title,steps] of [['T1','电子菜单设计与规格定价','完善至少5道菜的信息、分类、图片与多规格定价；核对价格差异并说明菜单设计依据。'],['T2','顾客点餐与订单核对','为A01创建订单，选择规格、口味和整单备注，核对菜品与数量；用订单码完成扫码订单收入。'],['T3','后厨协同与出餐','接单、制作、出餐，处理缺货或特殊要求，说明前后场协同方法。'],['T4','结账与经营复盘','完成模拟收款，核对已收与待收金额，分析销量结构与经营改进措施。']])db.prepare('INSERT OR IGNORE INTO tasks VALUES(?,?)').run(id,JSON.stringify({id,title,steps,deliverable:'提交操作证据、结果分析和改进反思（至少30字）',rubric:'操作准确40分、服务与风险意识30分、分析反思30分',published:true,maxScore:100}));
 const rows=t=>db.prepare('SELECT record FROM '+t).all().map(x=>JSON.parse(x.record));const put=(t,id,r)=>db.prepare('INSERT OR REPLACE INTO '+t+' VALUES(?,?)').run(id,JSON.stringify(r));
+/* 班级管理：只新增班级与归班映射，不改写任何学生行，也不触碰学生的业务存档。 */
+const DEFAULT_CLASS={id:'default',name:'默认教学班',note:'未归班学生自动归入本班',createdAt:'2026-11-24T00:00:00.000Z'};
+db.prepare('INSERT OR IGNORE INTO classes VALUES(?,?)').run(DEFAULT_CLASS.id,JSON.stringify(DEFAULT_CLASS));
+const classList=()=>db.prepare('SELECT record FROM classes ORDER BY rowid').all().map(x=>JSON.parse(x.record)).map(c=>({...c,count:db.prepare("SELECT COUNT(*) n FROM users u WHERE u.role='student' AND COALESCE((SELECT class_id FROM class_students m WHERE m.student_id=u.id),'default')=?").get(c.id).n}));
+const classOf=id=>db.prepare('SELECT class_id FROM class_students WHERE student_id=?').get(id)?.class_id||'default';
+const classExists=id=>Boolean(db.prepare('SELECT 1 FROM classes WHERE id=?').get(id));
+function saveClass(b){
+  const name=String(b.name||'').trim(),note=String(b.note||'').trim().slice(0,100);
+  if(!name||name.length>30)fail('班级名称需为1—30个字符');
+  if(b.id==='default')fail('默认教学班不能修改，可直接调整学生归班');
+  const id=b.id?String(b.id):crypto.randomUUID();
+  if(b.id&&!classExists(id))fail('班级不存在');
+  const existing=b.id?db.prepare('SELECT record FROM classes WHERE id=?').get(id):null;
+  const record={id,name,note,createdAt:existing?JSON.parse(existing.record).createdAt:new Date().toISOString()};
+  put('classes',id,record);
+  return{ok:true,class:{...record,count:classList().find(c=>c.id===id)?.count||0}};
+}
+function moveStudent(b){
+  const studentId=String(b.studentId||''),classId=String(b.classId||'default');
+  if(!db.prepare("SELECT 1 FROM users WHERE id=? AND role='student'").get(studentId))fail('学生不存在',404);
+  if(!classExists(classId))fail('班级不存在',404);
+  if(classId==='default')db.prepare('DELETE FROM class_students WHERE student_id=?').run(studentId);
+  else db.prepare('INSERT INTO class_students(student_id,class_id) VALUES(?,?) ON CONFLICT(student_id) DO UPDATE SET class_id=excluded.class_id').run(studentId,classId);
+  return{ok:true,studentId,classId};
+}
 const send=(r,s,v,h={})=>{r.writeHead(s,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...h});r.end(JSON.stringify(v))};const fail=(m,status=400)=>{throw Object.assign(Error(m),{status})};
 const housekeeping=setInterval(()=>{if(!storage.remote)db.prepare('DELETE FROM sessions WHERE expires<?').run(Date.now())},60000);housekeeping.unref();
 const accountBridge=require('../../storage/account-bridge.cjs')({
@@ -25,9 +51,11 @@ const accountBridge=require('../../storage/account-bridge.cjs')({
 });
 const agentBridge=require('../../agent/course-adapter.cjs')({db,course:'catering'});
 /* 实时扫码点单：二维码由稳定密钥对学号派生，重启不变；顾客订单只追加到该学生店铺，
-   不新建数据表、不改写历史订单，因此 OSS/飞书远端存储无需离线迁移。 */
+   班级表只保存归班映射；扫码订单只追加新订单、不改写历史订单，学生业务存档保持原样。 */
 const DEFAULT_TABLES=['A01','A02','A03','A04','B01','B02'];
 const MODS=['少油','少盐','免葱','免蒜','加急'];
+/* 顾客下单时可选支付方式；结账时收银台仍以实际收款方式为准。 */
+const PAY_METHODS={wx:'微信支付',zfb:'支付宝',cash:'现金',credit:'信用卡',debit:'储蓄卡',meituan:'美团团购',dianping:'大众点评团购'};
 const QR_SECRET=process.env.QR_CHANNEL_KEY||'wushanyuan-catering-qr-v1';
 const qrToken=id=>crypto.createHmac('sha256',QR_SECRET).update('qr|'+id).digest('base64url').slice(0,22);
 const presence=new Map();
@@ -83,11 +111,13 @@ function qrOrder(row,b){
   }
   const guests=Math.min(30,Math.max(1,Number.isInteger(Number(b.guests))?Number(b.guests):2));
   const note=String(b.note||'').replace(/[\u0000-\u001f]/g,'').slice(0,200);
+  const pay=String(b.pay||'wx');
+  if(!PAY_METHODS[pay])fail('支付方式无效',400);
   let seq=Math.max(Number(src.seq)||100,...orders.map(o=>{const m=/(\d+)$/.exec(String(o.no||''));return m?Number(m[1]):0;}))+1;
   let no;
   do{no=table+'-'+String(seq).slice(-3);seq+=1;}while(orders.some(o=>o&&o.no===no));
   const now=new Date(),hm=('0'+now.getHours()).slice(-2)+':'+('0'+now.getMinutes()).slice(-2);
-  const order={no,table,items:built,orderNote:note,guests,status:'new',ts:now.getTime(),timeHM:hm};
+  const order={no,table,items:built,orderNote:note,guests,status:'new',ts:now.getTime(),timeHM:hm,payMethod:pay,payName:PAY_METHODS[pay],paySource:'customer'};
   const next=state;
   next.original=Object.assign({},src,{orders:orders.concat([order]),seq});
   /* 同步维护一份映射后的订单摘要，教师面板与营业统计无需等待学生再次保存 */
@@ -95,7 +125,7 @@ function qrOrder(row,b){
   next.orders=(Array.isArray(state.orders)?state.orders:[]).concat([{id:no,table,note,items:mapped,total,payable:total,status:'待接单',time:now.toISOString()}]);
   next.version=(Number(state.version)||0)+1;
   db.prepare('UPDATE users SET state=? WHERE id=?').run(JSON.stringify(next),row.id);
-  return{ok:true,no,table,status:'new',total:built.reduce((a,i)=>a+i.price*i.qty,0),timeHM:hm};
+  return{ok:true,no,table,status:'new',total:built.reduce((a,i)=>a+i.price*i.qty,0),timeHM:hm,payMethod:pay,payName:PAY_METHODS[pay]};
 }
 function qrStatus(row,b){
   const no=String(b.no||'');
@@ -105,7 +135,8 @@ function qrStatus(row,b){
   if(!order)return{ok:false,no,status:'missing'};
   const queue=order.status==='new'?orders.filter(o=>o.status==='new'&&Number(o.ts)<Number(order.ts)).length+1:0;
   return{ok:true,no,status:order.status,table:order.table,items:order.items,orderNote:order.orderNote||'',
-    guests:order.guests||0,timeHM:order.timeHM||'',queue,payable:order.settle!=null?order.settle:null};
+    guests:order.guests||0,timeHM:order.timeHM||'',queue,payable:order.settle!=null?order.settle:null,
+    payMethod:order.payMethod||'',payName:order.payMethod?(PAY_METHODS[order.payMethod]||order.payMethod):''};
 }
 function qrRate(token,kind){
   const now=Date.now();
@@ -126,7 +157,7 @@ if(!route.startsWith('/api/')&&!['GET','HEAD'].includes(req.method))fail('页面
 if(req.method!=='GET'&&req.headers.origin&&new URL(req.headers.origin).host!==req.headers.host)fail('拒绝跨站请求',403);
 let b={};if(req.method==='POST'){req.setEncoding('utf8');let s='';for await(const c of req){s+=c;if(s.length>16000000)fail('数据过大')}b=JSON.parse(s||'{}')}
 if(route==='/api/health'&&req.method==='GET')return send(res,200,{ok:true,product:'catering'});
-if(route.startsWith('/api/')&&req.method!==( ['/api/snapshot'].includes(route)?'GET':'POST'))fail('请求方法无效',405);
+if(route.startsWith('/api/')){const okMethod=route==='/api/classes'?['GET','POST'].includes(req.method):(['/api/snapshot','/api/teaching-demo'].includes(route)?req.method==='GET':req.method==='POST');if(!okMethod)fail('请求方法无效',405);}
 /* 扫码顾客端公共接口：无需登录，按码限流，只读菜单 / 下单 / 查状态 */
 const qrApi=/^\/api\/qr\/([A-Za-z0-9_-]{16,64})(?:\/(order|status))?$/.exec(route);
 if(qrApi){
@@ -153,12 +184,27 @@ if(route==='/api/student-view'){
   if(u.role!=='teacher')fail('仅教师可查看学生页面',403);
   const s=db.prepare("SELECT id,name,state FROM users WHERE role='student' AND id=?").get(String(b.id||''));
   if(!s)fail('学生不存在',404);
-  return send(res,200,{user:{id:s.id,name:s.name},state:JSON.parse(s.state||'{}'),presence:presence.get(s.id)||null,qrPath:'/catering/qr/'+qrToken(s.id)});
+  return send(res,200,{user:{id:s.id,name:s.name},state:JSON.parse(s.state||'{}'),classId:classOf(s.id),presence:presence.get(s.id)||null,qrPath:'/catering/qr/'+qrToken(s.id)});
+}
+/* 教师班级管理：按班级归类学生与经营数据，学生业务存档保持原样 */
+if(route==='/api/classes'){
+  if(u.role!=='teacher')fail('仅教师可管理班级',403);
+  if(req.method==='GET')return send(res,200,{ok:true,classes:classList()});
+  return send(res,200,saveClass(b));
+}
+if(route==='/api/classes/move'){
+  if(u.role!=='teacher')fail('仅教师可管理班级',403);
+  return send(res,200,moveStudent(b));
+}
+/* 教学演示：只返回只读的完整示例经营数据，不落库、不影响任何学生账号 */
+if(route==='/api/teaching-demo'){
+  if(u.role!=='teacher')fail('仅教师可打开教学演示',403);
+  return send(res,200,{ok:true,user:{id:'demo',name:'教学演示'},state:{version:0,original:demoState()},demo:true});
 }
 if(route==='/api/snapshot'){
   const snapshot={user:{id:u.id,name:u.name,role:u.role},state:JSON.parse(u.state)};
   if(url.searchParams.get('view')==='business')return send(res,200,snapshot);
-  return send(res,200,{...snapshot,tasks:rows('tasks').filter(t=>u.role==='teacher'||t.published),submissions:rows('submissions').filter(s=>u.role==='teacher'||s.studentId===u.id),messages:rows('messages').filter(m=>u.role==='teacher'||m.target==='all'||m.target===u.id),students:u.role==='teacher'?db.prepare("SELECT id,name,state FROM users WHERE role='student'").all().map(s=>({...s,state:JSON.parse(s.state),presence:presence.get(s.id)||null})):[]});
+  return send(res,200,{...snapshot,tasks:rows('tasks').filter(t=>u.role==='teacher'||t.published),submissions:rows('submissions').filter(s=>u.role==='teacher'||s.studentId===u.id),messages:rows('messages').filter(m=>u.role==='teacher'||m.target==='all'||m.target===u.id),classes:u.role==='teacher'?classList():[],students:u.role==='teacher'?db.prepare("SELECT id,name,state FROM users WHERE role='student'").all().map(s=>({...s,state:JSON.parse(s.state),classId:classOf(s.id),presence:presence.get(s.id)||null})):[]});
 }
 if(route==='/api/business-state'){
   if(u.role!=='student'||b.studentId!==u.id)fail('请确认当前登录的是原学生账号',403);

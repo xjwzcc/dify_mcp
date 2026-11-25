@@ -47,6 +47,27 @@ async function bridge(course, data) {
   }
   const teacherList = () => ({ teachers: db.prepare("SELECT id,username,name,role FROM accounts WHERE role='teacher' ORDER BY username").all()
     .map(a => ({ ...publicAccount(a), approved: approved(a.id) })) });
+  const studentList = () => ({ students: db.prepare("SELECT id,username,name,role FROM accounts WHERE role='student' ORDER BY name,username").all()
+    .map(a => ({ ...publicAccount(a), bindings: bindings(a.id),
+      online: Boolean(db.prepare('SELECT 1 FROM sessions WHERE id=? AND expires>?').get(a.id, Date.now())) })) });
+  /* 教师管理学生统一账号：只删统一账号、登录会话与课程绑定，学生课程内的菜单、订单、成绩保留。 */
+  async function deleteStudent(b) {
+    const username = String(b.username || '').trim();
+    const account = db.prepare("SELECT * FROM accounts WHERE username=? AND role='student'").get(username);
+    if (!account) fail('学生账号不存在', 404);
+    if (String(b.confirm || '') !== username) fail('请完整输入学生账号以确认删除');
+    const bound = bindings(account.id).length;
+    const sessions = db.prepare('SELECT token FROM sessions WHERE id=?').all(account.id).map(s => s.token);
+    // Revoke course-side sessions first. Any unavailable course aborts the whole
+    // deletion, so the operation stays retryable and no half-deleted account remains.
+    const courseRows = sessions.length ? db.prepare(`SELECT course,token FROM course_sessions WHERE session_id IN (${sessions.map(() => '?').join(',')})`).all(...sessions) : [];
+    for (const row of courseRows) await bridge(row.course, { action: 'revoke', token: row.token });
+    for (const token of sessions) db.prepare('DELETE FROM course_sessions WHERE session_id=?').run(token);
+    db.prepare('DELETE FROM sessions WHERE id=?').run(account.id);
+    db.prepare('DELETE FROM bindings WHERE account_id=?').run(account.id);
+    db.prepare('DELETE FROM accounts WHERE id=?').run(account.id);
+    return { ok: true, username, bindings: bound };
+  }
   async function manageTeacher(b, web = false) {
     if (b.action === 'list') return teacherList();
     const username = String(b.username || '').trim();
@@ -119,7 +140,7 @@ async function bridge(course, data) {
       if (!route.startsWith('/api/')) {
         if (!['GET', 'HEAD'].includes(req.method)) fail('请求方法无效', 405);
         const file = { '/': req.entryRole + '/index.html', '/app.js': req.entryRole + '/app.js', '/style.css': 'style.css',
-          ...(req.entryRole === 'teacher' ? { '/admin/': 'teacher/admin/index.html', '/admin/app.js': 'teacher/admin/app.js', '/admin/style.css': 'teacher/admin/style.css' } : {}) }[route];
+          ...(req.entryRole === 'teacher' ? { '/admin/': 'teacher/admin/index.html', '/admin/app.js': 'teacher/admin/app.js', '/admin/style.css': 'teacher/admin/style.css', '/students/': 'teacher/students/index.html', '/students/app.js': 'teacher/students/app.js', '/students/style.css': 'teacher/students/style.css' } : {}) }[route];
         if (!file) fail('页面不存在', 404);
         res.writeHead(200, { 'Content-Type': (file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html') + '; charset=utf-8', 'Cache-Control': 'no-store' });
         return res.end(req.method === 'HEAD' ? undefined : fs.readFileSync(path.join(__dirname, 'public', file)));
@@ -135,6 +156,11 @@ async function bridge(course, data) {
       if (route === '/api/session' && req.method === 'GET') {
         if (!u) fail('请先登录统一账号', 401);
         return reply(res, 200, { user: publicAccount(u), bindings: bindings(u.id) });
+      }
+      if (route === '/api/students' && req.method === 'GET') {
+        if (!u) fail('请先登录教师账号', 401);
+        if (u.role !== 'teacher') fail('仅教师可以管理学生账号', 403);
+        return reply(res, 200, studentList());
       }
       if (req.method !== 'POST') fail('请求方法无效', 405);
       const ip = clientAddress(req);
@@ -184,6 +210,10 @@ async function bridge(course, data) {
         await revokeCourses(u.session_id); db.prepare('DELETE FROM sessions WHERE token=?').run(u.session_id);
         return reply(res, 200, { ok: true }, [`teaching_${req.entryRole}=; Path=/${req.entryRole}/; Max-Age=0; HttpOnly; SameSite=Strict${secure}`, ...clearCourses]);
       }
+      if (route === '/api/students/delete') {
+        if (u.role !== 'teacher') fail('仅教师可以管理学生账号', 403);
+        return reply(res, 200, await deleteStudent(b));
+      }
       if (!Object.hasOwn(ports, b.course)) fail('请选择有效课程');
       if (route === '/api/bind') {
         if (u.role !== 'student') fail('教师使用独立教学身份，无需绑定共享教师账号', 403);
@@ -223,7 +253,7 @@ async function bridge(course, data) {
   const adminServer = http.createServer((req, res) => { req.consoleAdmin = true; return dispatch(req, res); });
   await storage.ready();
   if (fs.existsSync(socketPath)) fs.unlinkSync(socketPath);
-  await new Promise((resolve, reject) => { adminServer.once('error', reject); adminServer.listen(socketPath, () => { fs.chmodSync(socketPath, 0o600); resolve(); }); });
+  await new Promise((resolve, reject) => { adminServer.once('error', reject); adminServer.listen(socketPath, () => { try { fs.chmodSync(socketPath, 0o600); } catch {} resolve(); }); });
   server.listen(Number(process.env.PORT || 9104), process.env.HOST || '127.0.0.1', () => console.log('Unified account service ready'));
   function stop() { adminServer.close(); server.close(() => { db.close(); process.exit(0); }); setTimeout(() => process.exit(0), 3000).unref(); }
   process.on('SIGTERM', stop); process.on('SIGINT', stop);

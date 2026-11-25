@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>学生账号管理 · 实训平台</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <div class="brand">学生账号管理<span>统一账号 · 重复注册清理</span></div>
+  <nav><a href="/teacher/">← 返回教师工作台</a><span id="who" class="muted"></span></nav>
+</header>
+<main>
+  <section class="hero">
+    <div>
+      <span class="eyebrow">STUDENT ACCOUNTS</span>
+      <h1>清理重复注册，保留课程成果</h1>
+      <p class="muted">删除只针对统一账号、登录会话与课程绑定；学生在餐饮、酒店课程内已保存的菜单、订单与成绩不会被删除。</p>
+    </div>
+    <div class="metrics">
+      <div><b id="mTotal">—</b><span>学生账号</span></div>
+      <div><b id="mDup">—</b><span>同名重复</span></div>
+      <div><b id="mOnline">—</b><span>当前在线</span></div>
+    </div>
+  </section>
+  <div class="toolbar">
+    <input id="q" type="search" placeholder="搜索姓名或学号">
+    <span class="muted" id="hint">按姓名分组识别重复注册；删除前需输入完整学号确认。</span>
+  </div>
+  <div id="list" class="list"></div>
+</main>
+<div id="toast"></div>
+<dialog id="delDlg">
+  <form method="dialog" id="delForm">
+    <h2>删除学生账号</h2>
+    <p>将删除统一账号 <b id="delName"></b>，并撤销其登录会话与课程绑定。</p>
+    <p class="warn">课程内已保存的菜单、订单、成绩和班级归属不会被删除；该账号删除后无法登录。</p>
+    <label>输入完整学号以确认<input id="confirm" autocomplete="off" placeholder=""></label>
+    <div class="btns"><button type="button" class="light" id="cancel">取消</button><button type="submit" id="ok" disabled>确认删除</button></div>
+  </form>
+</dialog>
+<script src="app.js"></script>
+</body>
+</html>

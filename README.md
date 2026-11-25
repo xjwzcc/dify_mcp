@@ -135,6 +135,10 @@ MCP 所需第三方服务凭据沿用原 FC 环境。不要将云端配置导出
 node --test tests/integration.test.cjs
 # 餐饮扫码点单与教师只读预览：
 node --test tests/catering-qr-order.test.cjs
+# 餐饮班级归类、教学演示数据包与顾客支付方式：
+node --test tests/catering-classes-demo.test.cjs
+# 教师端学生账号管理（列表与重复账号删除）：
+node --test tests/accounts-students.test.cjs
 # 飞书适配器改动对应的模拟故障测试：
 node --test tests/feishu-storage.test.cjs
 # OSS 签名、提交冲突、故障恢复及迁移：
@@ -161,12 +165,27 @@ TEST_STORAGE_BACKEND=feishu node --test tests/integration.test.cjs
 node --test tests/catering-qr-order.test.cjs
 ```
 
+## 餐饮班级、教学演示与顾客支付
+
+餐饮教师端新增两项能力：
+
+- **班级管理**：`classes` 保存班级名称与备注，`class_students` 只保存“学生 → 班级”映射，不修改 `users` 表中的任何学生行，也不触碰菜单、订单、成绩与日志。教师可新建/重命名班级、调整学生归班，并按班级筛选“任务完成进度”和“学生数据面板”；未归班学生统一归入“默认教学班”。接口为 `GET/POST /catering/api/classes` 与 `POST /catering/api/classes/move`，仅教师可用。
+- **教学演示**：`GET /catering/api/teaching-demo` 返回独立生成的示例经营数据包（30 笔订单、14 道菜、4 种后厨状态、7 种支付方式与团购结算），不读取也不写入任何学生账号。教师端“教学演示”通过只读业务页展示后厨 KDS、营业统计与数据决策，适合投屏授课。
+
+顾客扫码点单的确认页新增支付方式选择（微信、支付宝、现金、信用卡、储蓄卡、美团团购、大众点评团购），随订单写入 `payMethod`/`payName`，后厨 KDS 卡片显示“顾客预选支付”，营业统计仍以收银台实际结账方式为准。原项目收银台的支付方式同步补上现金。
+
+新增的两张表会改变远端 OSS/飞书数据库结构；NAS 部署（当前生产）直接生效，已有远端 OSS 部署升级前需按既有流程做一次离线结构迁移。测试：
+
+```bash
+node --test tests/catering-classes-demo.test.cjs tests/accounts-students.test.cjs
+```
+
 ## 教师与学生登录
 
 学生访问 `/student/` 登录或注册；教师访问 `/teacher/` 登录。两端拥有独立 HTML、JavaScript、API 前缀和路径限定的 HttpOnly 会话 Cookie；角色由服务器根据入口固定，忽略 URL 中的身份切换。旧 `/accounts/` 链接只做兼容跳转，旧账号 API 与旧课程登录 API 在统一部署中均已关闭。
 
 - 新生点击课程入口即自动建立档案；酒店课程首次进入可选择已开放的班级。教师的入口与新生加入开关仍有效。
-- 教师账号只能由 `teacher_admin` 在管理后台创建或确认，也可通过服务器管理员命令创建。普通教师仍具有两门课程现有的教学管理权限（当前未按教师隔离班级），没有账号管理权限。
+- 教师账号只能由 `teacher_admin` 在管理后台创建或确认，也可通过服务器管理员命令创建。普通教师具有两门课程的教学管理权限（当前未按教师隔离班级），并可进入 `/teacher/students/` 管理学生统一账号：按姓名识别重复注册、删除前输入完整学号二次确认。删除只撤销统一账号、登录会话与课程绑定，课程内的菜单、订单、成绩与班级归属保留；教师账号和管理员账号不受此页影响。
 - 已有统一账号和绑定关系保持不变。仅使用过旧课程账号的学生，可在课程卡片展开“找回原课程记录”，验证原学号与密码后关联，保留作业、成绩和业务存档。不会仅凭同名账号合并记录，也不能覆盖已有绑定。
 - 网关下的原课程页面会转到统一入口；独立部署的课程保留原登录界面。退出课程会同时退出统一账号并撤销关联会话。
 - 统一账号密码独立于旧课程密码；当前没有自助重置统一账号密码功能。
