@@ -8,3 +8,7 @@ dialog.wide{width:min(1520px,95vw);max-width:95vw}
 label.inline{display:inline-flex;align-items:center;gap:8px;margin:0;font-size:13px;white-space:nowrap}
 label.inline select{display:inline-block;width:auto;margin:0;padding:7px 10px}
 .toolbar{align-items:center}
+
+.classroom-filters{align-items:flex-end;flex-wrap:wrap}
+.classroom-filters label{margin:0}
+.classroom-filters input,.classroom-filters select{margin-top:4px}

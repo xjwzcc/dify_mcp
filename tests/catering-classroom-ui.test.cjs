@@ -34,15 +34,18 @@ test('teacher navigation fetches only the requested page and opens submission de
     if (url.pathname.endsWith('/submission-detail')) return { id: 'T1_S01', name: '学生', title: '工单', content: '证据内容', evidence: { menu: [], orders: [] }, history: [] };
     const page = Number(url.searchParams.get('page'));
     const paging = { page, pages: 2, pageSize: 20, total: 21 };
+    const classes = url.searchParams.get('scope') === 'experimental'
+      ? [{ id: 'experiment', name: '实验数据', count: 21 }] : [{ id: 'default', name: '默认教学班', count: 21 }];
     switch (url.searchParams.get('section')) {
-      case 'overview': return { overview: { students: 21, classes: 1, active: 0, pending: 1, graded: 0 }, publishedTasks: 4 };
-      case 'students': return { students: [], classes: [{ id: 'default', name: '默认教学班', count: 21 }], publishedTasks: 4, paging };
-      case 'submissions': return { submissions: [{ id: 'T1_S01', name: '学生', title: '工单', status: '待批阅' }], paging };
+      case 'overview': return { overview: { students: 21, classes: 1, active: 0, pending: 1, graded: 0 }, classes, publishedTasks: 4 };
+      case 'students': return { students: [], classes, publishedTasks: 4, paging };
+      case 'submissions': return { submissions: [{ id: 'T1_S01', studentId: 'S01', classId: classes[0].id, name: '学生', title: '工单', status: '待批阅' }], classes, paging };
       default: assert.fail(url.href);
     }
   });
   await nextTurn();
   assert.equal(calls[0].searchParams.get('section'), 'overview');
+  assert.equal(calls[0].searchParams.get('scope'), 'regular');
   document.querySelector('[data-id="学生数据面板"]').click();
   await nextTurn();
   assert.equal(calls.at(-1).searchParams.get('section'), 'students');
@@ -55,9 +58,23 @@ test('teacher navigation fetches only the requested page and opens submission de
   await nextTurn();
   assert.equal(calls.at(-1).searchParams.get('page'), '1');
   assert.equal(calls.at(-1).searchParams.get('classId'), 'default');
+  const scope = document.querySelector('[data-scope-filter]');
+  scope.value = 'experimental';
+  scope.dispatchEvent(new document.defaultView.Event('change', { bubbles: true }));
+  await nextTurn();
+  assert.equal(calls.at(-1).searchParams.get('classId'), 'all');
+  assert.equal(calls.at(-1).searchParams.get('scope'), 'experimental');
+  assert.match(document.querySelector('[data-class-filter]').textContent, /实验数据/);
+  document.querySelector('input[name="student"]').value = '  S01  ';
+  document.querySelector('#classroom-filters button[type="submit"]').click();
+  await nextTurn();
+  assert.equal(calls.at(-1).searchParams.get('student'), 'S01');
+  assert.equal(calls.at(-1).searchParams.get('page'), '1');
   document.querySelector('[data-id="提交与批阅"]').click();
   await nextTurn();
   assert.equal(calls.at(-1).searchParams.get('section'), 'submissions');
+  assert.equal(calls.at(-1).searchParams.get('scope'), 'experimental');
+  assert.equal(calls.at(-1).searchParams.get('student'), 'S01');
   document.querySelector('[data-act="review"]').click();
   await nextTurn();
   assert.equal(calls.at(-1).pathname, '/catering/api/submission-detail');

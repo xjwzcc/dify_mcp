@@ -1,6 +1,16 @@
 'use strict';
 
 const PAGE_SIZE = 20;
+const EXPERIMENTAL_CLASS_NAME = '实验数据';
+
+function isExperimentalClass({ name, experimental }) {
+  return experimental === true || name === EXPERIMENTAL_CLASS_NAME;
+}
+
+function dataScope(params) {
+  const scope = params.get('scope');
+  return scope === 'experimental' || scope === 'all' ? scope : 'regular';
+}
 
 function studentSummary(state) {
   const orders = Array.isArray(state.orders) ? state.orders : [];
@@ -39,8 +49,11 @@ function pagination(total, requestedPage) {
 }
 
 function createClassroomData({ db, storage, presence }) {
-  const classJoin = "FROM users u LEFT JOIN class_students m ON m.student_id=u.id WHERE u.role='student'";
+  const classJoin = `FROM users u LEFT JOIN class_students m ON m.student_id=u.id
+    LEFT JOIN classes c ON c.id=m.class_id WHERE u.role='student'`;
   const classId = "COALESCE(m.class_id,'default')";
+  const experimental = `(COALESCE(json_extract(c.record,'$.experimental'),0)=1
+    OR COALESCE(json_extract(c.record,'$.name'),'')='${EXPERIMENTAL_CLASS_NAME}')`;
   const readState = db.prepare('SELECT state FROM users WHERE id=?');
   const summariesByStudent = new Map();
   let submissions;
@@ -85,12 +98,39 @@ function createClassroomData({ db, storage, presence }) {
     return summary;
   }
 
-  function classList(includeBusinessTotals = false) {
-    const counts = db.prepare(`SELECT ${classId} id, COUNT(*) count ${classJoin} GROUP BY 1`).all();
+  function scopedStudents(scope) {
+    if (scope === 'all') return classJoin;
+    return `${classJoin} AND ${scope === 'experimental' ? experimental : 'NOT ' + experimental}`;
+  }
+
+  function matchStudents(params) {
+    const clauses = [scopedStudents(dataScope(params))];
+    const args = [];
+    const selectedClass = params.get('classId');
+    const student = (params.get('student') || '').trim().slice(0, 80);
+    if (selectedClass && selectedClass !== 'all') {
+      clauses.push(`AND ${classId}=?`);
+      args.push(selectedClass);
+    }
+    if (student) {
+      clauses.push('AND (instr(lower(u.id),lower(?))>0 OR instr(lower(u.name),lower(?))>0)');
+      args.push(student, student);
+    }
+    return { query: clauses.join(' '), args };
+  }
+
+  function matchingStudents(params) {
+    const { query, args } = matchStudents(params);
+    return db.prepare(`SELECT u.id,${classId} classId ${query}`).all(...args);
+  }
+
+  function classList(includeBusinessTotals = false, scope = 'all') {
+    const query = scopedStudents(scope);
+    const counts = db.prepare(`SELECT ${classId} id, COUNT(*) count ${query} GROUP BY 1`).all();
     const countsByClass = new Map(counts.map(row => [row.id, row.count]));
     const totals = new Map();
     if (includeBusinessTotals) {
-      for (const row of db.prepare(`SELECT u.id,${classId} classId ${classJoin}`).iterate()) {
+      for (const row of db.prepare(`SELECT u.id,${classId} classId ${query}`).iterate()) {
         const summary = summaryFor(row.id);
         const total = totals.get(row.classId) || { orders: 0, revenue: 0 };
         total.orders += summary.orderCount;
@@ -98,22 +138,20 @@ function createClassroomData({ db, storage, presence }) {
         totals.set(row.classId, total);
       }
     }
-    return db.prepare('SELECT record FROM classes ORDER BY rowid').all().map(({ record }) => {
-      const info = JSON.parse(record);
-      return {
+    return db.prepare('SELECT record FROM classes ORDER BY rowid').all()
+      .map(({ record }) => JSON.parse(record))
+      .filter(info => scope === 'all' || isExperimentalClass(info) === (scope === 'experimental'))
+      .map(info => ({
         ...info, count: countsByClass.get(info.id) || 0,
         ...(includeBusinessTotals ? totals.get(info.id) || { orders: 0, revenue: 0 } : {})
-      };
-    });
+      }));
   }
 
   function studentPage(params, includeBusiness) {
-    const selectedClass = params.get('classId') || 'all';
-    const filter = selectedClass === 'all' ? '' : ` AND ${classId}=?`;
-    const args = filter ? [selectedClass] : [];
-    const { total } = db.prepare(`SELECT COUNT(*) total ${classJoin}${filter}`).get(...args);
+    const { query, args } = matchStudents(params);
+    const { total } = db.prepare(`SELECT COUNT(*) total ${query}`).get(...args);
     const paging = pagination(total, params.get('page'));
-    const students = db.prepare(`SELECT u.id,u.name,${classId} classId ${classJoin}${filter} ORDER BY u.id LIMIT ? OFFSET ?`)
+    const students = db.prepare(`SELECT u.id,u.name,${classId} classId ${query} ORDER BY u.id LIMIT ? OFFSET ?`)
       .all(...args, paging.pageSize, (paging.page - 1) * paging.pageSize)
       .map(({ id, name, classId }) => ({
         id, name, classId, presence: presence.get(id) || null,
@@ -136,32 +174,35 @@ function createClassroomData({ db, storage, presence }) {
   }
 
   function submissionPage(params) {
-    const summaries = allSubmissionSummaries();
-    const { total } = db.prepare('SELECT COUNT(*) total FROM submissions').get();
-    const paging = pagination(total, params.get('page'));
-    const submissions = db.prepare('SELECT id FROM submissions ORDER BY id LIMIT ? OFFSET ?')
-      .all(paging.pageSize, (paging.page - 1) * paging.pageSize)
-      .map(({ id }) => {
-        const { feedback, ...summary } = summaries.get(id);
-        return summary;
-      });
+    const students = new Map(matchingStudents(params).map(student => [student.id, student.classId]));
+    const matches = Array.from(allSubmissionSummaries().values()).filter(record => students.has(record.studentId));
+    matches.sort((a, b) => a.id < b.id ? -1 : Number(a.id > b.id));
+    const paging = pagination(matches.length, params.get('page'));
+    const start = (paging.page - 1) * paging.pageSize;
+    const submissions = matches.slice(start, start + paging.pageSize)
+      .map(({ feedback, ...summary }) => ({ ...summary, classId: students.get(summary.studentId) }));
     return { submissions, paging };
   }
 
-  function overview() {
-    const { students } = db.prepare("SELECT COUNT(*) students FROM users WHERE role='student'").get();
-    const { classes } = db.prepare('SELECT COUNT(*) classes FROM classes').get();
+  function overview(params, classes) {
+    const students = matchingStudents(params);
+    const studentIds = new Set(students.map(student => student.id));
+    const selectedClass = params.get('classId');
+    const matchingClasses = new Set(students.map(student => student.classId));
+    const classCount = (params.get('student') || '').trim() ? matchingClasses.size
+      : classes.filter(info => !selectedClass || selectedClass === 'all' || info.id === selectedClass).length;
     const recent = Date.now() - 300000;
     let active = 0, pending = 0, graded = 0;
-    for (const activity of presence.values()) if (activity.at > recent) active++;
+    for (const id of studentIds) if (presence.get(id)?.at > recent) active++;
     for (const submission of allSubmissionSummaries().values()) {
+      if (!studentIds.has(submission.studentId)) continue;
       if (submission.status === '待批阅') pending++;
       if (submission.status === '已评价') graded++;
     }
-    return { students, classes, active, pending, graded };
+    return { students: students.length, classes: classCount, active, pending, graded };
   }
 
   return { classList, studentPage, submissionPage, overview, saveStudentState, getSubmission, putSubmission, allSubmissionSummaries };
 }
 
-module.exports = { createClassroomData, studentSummary, revisionHistory };
+module.exports = { createClassroomData, dataScope, isExperimentalClass, studentSummary, revisionHistory };

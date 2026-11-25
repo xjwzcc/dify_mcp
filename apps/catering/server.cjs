@@ -4,7 +4,7 @@ const {openDatabase}=require('../../storage/database.cjs');
 const courseSession=require('../../storage/course-session.cjs');
 const {businessState}=require('./business-state.cjs');
 const demoState=require('./demo-data.cjs');
-const {createClassroomData,studentSummary,revisionHistory}=require('./classroom-data.cjs');
+const {createClassroomData,dataScope,isExperimentalClass,studentSummary,revisionHistory}=require('./classroom-data.cjs');
 (async()=>{
 const dir=process.env.DATA_DIR||path.join(__dirname,'data');fs.mkdirSync(dir,{recursive:true});const storage=await openDatabase('catering',path.join(dir,'emenu.sqlite'));const db=storage.db;
 db.exec(`PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000; PRAGMA journal_mode=${process.env.SQLITE_JOURNAL_MODE==='DELETE'?'DELETE':'WAL'}; CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,name TEXT,role TEXT,hash TEXT,state TEXT); CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY,id TEXT); CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY,record TEXT); CREATE TABLE IF NOT EXISTS submissions(id TEXT PRIMARY KEY,record TEXT); CREATE TABLE IF NOT EXISTS messages(id TEXT PRIMARY KEY,record TEXT); CREATE TABLE IF NOT EXISTS classes(id TEXT PRIMARY KEY,record TEXT NOT NULL); CREATE TABLE IF NOT EXISTS class_students(student_id TEXT PRIMARY KEY,class_id TEXT NOT NULL);`);
@@ -29,8 +29,9 @@ function saveClass(b){
   if(b.id==='default')fail('默认教学班不能修改，可直接调整学生归班');
   const id=b.id?String(b.id):crypto.randomUUID();
   if(b.id&&!classExists(id))fail('班级不存在');
-  const existing=b.id?db.prepare('SELECT record FROM classes WHERE id=?').get(id):null;
-  const record={id,name,note,createdAt:existing?JSON.parse(existing.record).createdAt:new Date().toISOString()};
+  const existing=b.id?JSON.parse(db.prepare('SELECT record FROM classes WHERE id=?').get(id).record):null;
+  const record={id,name,note,createdAt:existing?.createdAt||new Date().toISOString()};
+  if(isExperimentalClass(record)||(existing&&isExperimentalClass(existing)))record.experimental=true;
   put('classes',id,record);
   return{ok:true,class:{...record,count:classList().find(c=>c.id===id)?.count||0}};
 }
@@ -216,13 +217,19 @@ if(route==='/api/snapshot'){
   if(view==='classroom'){
     if(u.role==='teacher'){
       const section=url.searchParams.get('section')||'overview';
+      const params=url.searchParams;
+      const scope=dataScope(params);
       const tasks=()=>rows('tasks');
       let content;
       switch(section){
-        case 'overview': content={overview:classroom.overview(),publishedTasks:tasks().filter(t=>t.published).length}; break;
-        case 'students': content={...classroom.studentPage(url.searchParams,true),classes:classList(),publishedTasks:tasks().filter(t=>t.published).length}; break;
-        case 'classes': content={...classroom.studentPage(url.searchParams,false),classes:classList(true)}; break;
-        case 'submissions': content=classroom.submissionPage(url.searchParams); break;
+        case 'overview': {
+          const classes=classList(false,scope);
+          content={overview:classroom.overview(params,classes),classes,publishedTasks:tasks().filter(t=>t.published).length};
+          break;
+        }
+        case 'students': content={...classroom.studentPage(params,true),classes:classList(false,scope),publishedTasks:tasks().filter(t=>t.published).length}; break;
+        case 'classes': content={...classroom.studentPage(params,false),classes:classList(true,scope)}; break;
+        case 'submissions': content={...classroom.submissionPage(params),classes:classList(false,scope)}; break;
         case 'tasks': content={tasks:tasks()}; break;
         case 'messages': content={messages:rows('messages'),recipients:db.prepare("SELECT id,name FROM users WHERE role='student' ORDER BY id").all()}; break;
         case 'demo': content={}; break;

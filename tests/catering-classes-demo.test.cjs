@@ -95,22 +95,27 @@ test('班级归类、教学演示数据包与顾客支付方式', async t => {
   assert.equal(snapshot.data.students[0].summary.menuCount, after.state.menu.length);
 
   await t.test('分页按班级过滤，工单证据只在详情返回', async () => {
+    const experimentalId = 'legacy-experiment';
     const db = new DatabaseSync(path.join(dir, 'emenu.sqlite'));
     try {
+      db.prepare('INSERT INTO classes(id,record) VALUES(?,?)')
+        .run(experimentalId, JSON.stringify({ id: experimentalId, name: '实验数据' }));
       const addStudent = db.prepare('INSERT INTO users(id,name,role,hash,state) VALUES(?,?,?,?,?)');
       const addSubmission = db.prepare('INSERT INTO submissions(id,record) VALUES(?,?)');
       const assign = db.prepare('INSERT INTO class_students(student_id,class_id) VALUES(?,?)');
-      for (let i = 2; i <= 24; i++) {
-        const studentId = 'S' + String(i).padStart(3, '0');
+      for (let i = 2; i <= 27; i++) {
+        const experimental = i > 24;
+        const studentId = experimental ? 'E00' + (i - 24) : 'S' + String(i).padStart(3, '0');
+        const name = experimental ? '联调' + (i - 24) : '学生' + i;
         const id = 'T1_' + studentId;
         const evidence = structuredClone(after.state);
         evidence.original.menu[0].img = 'fixture-photo';
-        addStudent.run(studentId, '学生' + i, 'student', '', JSON.stringify(evidence));
-        if (i > 21) assign.run(studentId, classId);
+        addStudent.run(studentId, name, 'student', '', JSON.stringify(evidence));
+        if (i > 21) assign.run(studentId, experimental ? experimentalId : classId);
         const first = { id, studentId, evidence, history: [] };
         const second = { ...first, history: [first] };
         addSubmission.run(id, JSON.stringify({
-          id, taskId: 'T1', studentId, name: '学生' + i, title: '工单',
+          id, taskId: 'T1', studentId, name, title: '工单',
           time: '2026-11-24T00:00:00Z', status: '待批阅', score: null, evidence, history: [first, second]
         }));
       }
@@ -124,6 +129,7 @@ test('班级归类、教学演示数据包与顾客支付方式', async t => {
     const initial = await read('overview');
     assert.equal(initial.overview.students, 24);
     assert.equal(initial.overview.pending, 23);
+    assert.ok(!initial.classes.some(c => c.id === experimentalId));
     assert.equal(initial.students, undefined);
     assert.equal(initial.submissions, undefined);
 
@@ -133,10 +139,20 @@ test('班级归类、教学演示数据包与顾客支付方式', async t => {
     assert.ok(firstPage.students.every(row => row.summary && !Object.hasOwn(row, 'state')));
     assert.deepEqual((await read('students&classId=default&page=2')).students.map(row => row.id), ['S021']);
     assert.deepEqual((await read('students&classId=' + classId + '&page=99')).students.map(row => row.id), ['S022', 'S023', 'S024']);
+    assert.deepEqual((await read('students&scope=experimental&classId=' + experimentalId)).students.map(row => row.id), ['E001', 'E002', 'E003']);
+    assert.equal((await read('students&scope=all')).paging.total, 27);
+    assert.equal((await read('students&classId=' + experimentalId)).paging.total, 0);
+    assert.equal((await read('students&scope=unknown')).paging.total, 24);
+    assert.deepEqual((await read('students&classId=' + classId + '&student=s024')).students.map(row => row.id), ['S024']);
+    assert.deepEqual((await read('students&scope=experimental&student=' + encodeURIComponent('联调2'))).students.map(row => row.id), ['E002']);
+    assert.equal((await read('students&scope=all&student=%25')).paging.total, 0);
+    assert.equal((await read('overview&scope=experimental')).overview.pending, 3);
+    assert.equal((await read('overview&classId=' + classId + '&student=s024')).overview.students, 1);
     const classPage = await read('classes&classId=' + classId);
     assert.equal(classPage.paging.total, 3);
     assert.equal(classPage.classes.find(row => row.id === classId).orders, 3);
     assert.ok(classPage.students.every(row => !Object.hasOwn(row, 'summary')));
+    assert.deepEqual((await read('classes&scope=experimental')).classes.map(row => [row.id, row.orders]), [[experimentalId, 3]]);
     const anotherOrder = await call('/catering/api/qr/' + token + '/order', {
       table: 'A01', pay: 'wx', items: [{ id: dish.id, qty: 1 }]
     });
@@ -148,6 +164,12 @@ test('班级归类、教学演示数据包与顾客支付方式', async t => {
     assert.deepEqual(list.paging, { page: 2, pages: 2, pageSize: 20, total: 23 });
     assert.deepEqual(list.submissions.map(row => row.studentId), ['S022', 'S023', 'S024']);
     assert.ok(list.submissions.every(row => !Object.hasOwn(row, 'evidence') && !Object.hasOwn(row, 'history')));
+    const filtered = await read('submissions&scope=experimental&classId=' + experimentalId + '&student=e002&page=2');
+    assert.deepEqual(filtered.submissions.map(row => [row.studentId, row.classId]), [['E002', experimentalId]]);
+    assert.equal(filtered.paging.total, 1);
+    assert.equal(filtered.paging.page, 1);
+    assert.equal((await read('submissions&scope=all')).paging.total, 26);
+    assert.equal((await read('submissions&student=e002')).paging.total, 0);
     const detail = '/catering/api/submission-detail?id=T1_S024';
     assert.equal((await call(detail)).status, 401);
     assert.equal((await call(detail, undefined, student.cookie)).status, 404);
@@ -173,5 +195,9 @@ test('班级归类、教学演示数据包与顾客支付方式', async t => {
     assert.equal((await call('/catering/api/submission-detail?id=T1_S001', undefined, teacher.cookie)).data.history.length, 2);
     assert.equal((await read('overview')).overview.graded, 1);
     assert.deepEqual((await read('students')).students[0].submissionStats, { count: 1, graded: 1, totalScore: 90 });
+    const renamed = await call('/catering/api/classes', { id: experimentalId, name: '新联调班' }, teacher.cookie);
+    assert.equal(renamed.data.class.experimental, true);
+    assert.equal((await read('overview')).overview.students, 24);
+    assert.equal((await read('students&scope=experimental')).classes[0].name, '新联调班');
   });
 });

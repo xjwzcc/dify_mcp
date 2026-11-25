@@ -1,5 +1,6 @@
 'use strict';
-let data,page='总览',cart=[],busy=false,classFilter='all',pageNumber=1;const app=document.querySelector('#app'),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),money=n=>'¥'+Number(n).toFixed(2);
+const DEFAULT_FILTERS={classId:'all',student:'',scope:'regular'};
+let data,page='总览',cart=[],busy=false,filters=DEFAULT_FILTERS,pageNumber=1;const app=document.querySelector('#app'),esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),money=n=>'¥'+Number(n).toFixed(2);
 async function api(url,body){const r=await fetch('/catering/api/'+url,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{signal:AbortSignal.timeout(30000)});const j=await r.json();if(!r.ok)throw Error(j.error);return j}
 function toast(s){const t=document.querySelector('#toast');t.textContent=s;t.style.display='block';setTimeout(()=>t.style.display='none',4000)}
 const button=(label,act,id='',cls='')=>`<button class="${cls}" data-act="${act}" data-id="${esc(id)}">${esc(label)}</button>`;
@@ -7,27 +8,27 @@ const field=(label,name,value='',type='text',extra='')=>`<label>${label}<input n
 const area=(label,name,value='')=>`<label>${label}<textarea name="${name}" required>${esc(value)}</textarea></label>`;
 const card=(title,body)=>`<section class="card"><h2>${title}</h2>${body}</section>`;
 const table=(heads,rows)=>`<div class="table"><table><thead><tr>${heads.map(x=>`<th>${x}</th>`).join('')}</tr></thead><tbody>${rows.length?rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join(''):`<tr><td colspan="${heads.length}" class="muted">暂无记录</td></tr>`}</tbody></table></div>`;
-function login(){window.dispatchEvent(new CustomEvent('teacher-chat-identity',{detail:null}));data=null;page='总览';classFilter='all';pageNumber=1;if(window.teachingAuth)return window.teachingAuth.login('catering');app.innerHTML=`<div class="login"><section class="hero"><span class="eyebrow">苏州旅游职业学院 · 吴山苑酒店</span><h1>原版业务，<br>完整课堂。</h1><p>餐饮信息系统 · 原项目教学双端版</p><div class="route">菜单与规格 → 扫码点餐 → 后厨 KDS → 营业统计</div><p class="small">从业务操作到成果评价，让实训过程可记录、可反馈。</p></section><section class="entry"><span class="eyebrow">EMENU · LEARNING STUDIO</span><h2>进入实训课堂</h2><p><a href="/accounts/">统一账号登录 / 学生与教师注册</a></p><form id="login"><label>进入身份<select name="role"><option value="student">学生端</option><option value="teacher">教师端</option></select></label>${field('学号（教师可留空）','id','','text','')}${field('姓名（学生首次进入填写）','name')}${field('个人密码','password','','password','minlength="6"')}${field('班级口令（学生首次进入填写）','classCode','')}<button>进入课堂</button><p class="muted small">教师使用管理员提供的账号密码；学生首次进入填写教师提供的班级口令。</p></form></section></div>`;app.querySelector('[name=role]').value=location.pathname.endsWith('/teacher')?'teacher':'student';app.querySelector('[name=id]').required=false;app.querySelector('[name=name]').required=false;app.querySelector('[name=classCode]').required=false}
+function login(){window.dispatchEvent(new CustomEvent('teacher-chat-identity',{detail:null}));data=null;page='总览';filters=DEFAULT_FILTERS;pageNumber=1;if(window.teachingAuth)return window.teachingAuth.login('catering');app.innerHTML=`<div class="login"><section class="hero"><span class="eyebrow">苏州旅游职业学院 · 吴山苑酒店</span><h1>原版业务，<br>完整课堂。</h1><p>餐饮信息系统 · 原项目教学双端版</p><div class="route">菜单与规格 → 扫码点餐 → 后厨 KDS → 营业统计</div><p class="small">从业务操作到成果评价，让实训过程可记录、可反馈。</p></section><section class="entry"><span class="eyebrow">EMENU · LEARNING STUDIO</span><h2>进入实训课堂</h2><p><a href="/accounts/">统一账号登录 / 学生与教师注册</a></p><form id="login"><label>进入身份<select name="role"><option value="student">学生端</option><option value="teacher">教师端</option></select></label>${field('学号（教师可留空）','id','','text','')}${field('姓名（学生首次进入填写）','name')}${field('个人密码','password','','password','minlength="6"')}${field('班级口令（学生首次进入填写）','classCode','')}<button>进入课堂</button><p class="muted small">教师使用管理员提供的账号密码；学生首次进入填写教师提供的班级口令。</p></form></section></div>`;app.querySelector('[name=role]').value=location.pathname.endsWith('/teacher')?'teacher':'student';app.querySelector('[name=id]').required=false;app.querySelector('[name=name]').required=false;app.querySelector('[name=classCode]').required=false}
 const TEACHER_SECTIONS={
   '总览':'overview','任务完成进度':'students','学生数据面板':'students','班级管理':'classes',
   '任务工单设计':'tasks','提交与批阅':'submissions','师生互动':'messages','教学演示':'demo'
 };
-function classroomSnapshot(nextPage=page,nextClass=classFilter,nextNumber=pageNumber){
-  const params=new URLSearchParams({view:'classroom',section:TEACHER_SECTIONS[nextPage]||'overview',classId:nextClass,page:String(nextNumber)});
+function classroomSnapshot(nextPage=page,nextFilters=filters,nextNumber=pageNumber){
+  const params=new URLSearchParams({view:'classroom',section:TEACHER_SECTIONS[nextPage]||'overview',...nextFilters,page:String(nextNumber)});
   return api('snapshot?'+params);
 }
-function showSnapshot(value,nextPage=page,nextClass=classFilter){
+function showSnapshot(value,nextPage=page,nextFilters=filters){
   if(window.teachingAuth&&!window.teachingAuth.acceptsRole(value.user.role))return;
-  data=value;page=nextPage;classFilter=nextClass;pageNumber=value.paging?.page||1;
+  data=value;page=nextPage;filters=nextFilters;pageNumber=value.paging?.page||1;
   render();
 }
 async function refresh(){showSnapshot(await classroomSnapshot())}
-async function openPage(nextPage,nextClass=classFilter,nextNumber=1){
+async function openPage(nextPage,nextFilters=filters,nextNumber=1){
   busy=true;
   try{
     await flushNative();
     if(!isTeacher()&&Object.hasOwn(PAGE_SECTION,nextPage)){page=nextPage;render();return}
-    showSnapshot(await classroomSnapshot(nextPage,nextClass,nextNumber),nextPage,nextClass);
+    showSnapshot(await classroomSnapshot(nextPage,nextFilters,nextNumber),nextPage,nextFilters);
   }finally{busy=false}
 }
 const isTeacher=()=>data.user.role==='teacher';const s=()=>data.state;
@@ -43,7 +44,7 @@ const className=id=>classes().find(c=>c.id===id)?.name||'默认教学班';
 const classOf=u=>u.classId||'default';
 function pager(){
   const {page,pages,total}=data.paging;
-  if(pages===1)return '';
+  if(pages===1)return `<p class="muted small">共 ${total} 条</p>`;
   return `<div class="toolbar" role="navigation" aria-label="列表分页">
     <button type="button" data-act="page" data-id="${page-1}" ${page===1?'disabled':''}>上一页</button>
     <span class="muted">第 ${page} / ${pages} 页 · 共 ${total} 条</span>
@@ -51,21 +52,35 @@ function pager(){
   </div>`;
 }
 const classOptions=(sel='all')=>`<option value="all"${sel==='all'?' selected':''}>全部班级</option>`+classes().map(c=>`<option value="${esc(c.id)}"${sel===c.id?' selected':''}>${esc(c.name)}（${c.count}）</option>`).join('');
-const classBar=()=>`<div class="toolbar"><label class="inline">班级筛选 <select data-class-filter>${classOptions(classFilter)}</select></label><span class="muted">按班级查看任务进度与学生业务数据，原始存档不受影响。</span></div>`;function render(){const teacher=isTeacher();const accountCenter=window.teachingAuth?(teacher?'/teacher/?next=admin':'/student/'):'/accounts/';window.dispatchEvent(new CustomEvent('teacher-chat-identity',{detail:teacher?{teacher:{id:data.user.id,name:data.user.name},context:{page}}:null}));const pages=teacher?['总览','任务完成进度','学生数据面板','班级管理','任务工单设计','提交与批阅','师生互动','教学演示']:['总览','菜单与分类管理','顾客点餐实训','后厨 KDS','营业统计与结账','点单二维码','课堂任务工单','师生互动'];if(!pages.includes(page))page='总览';app.innerHTML=`<aside><div class="brand">eMenu<span>电子菜单 · 教学仿真</span></div><div class="side-label">${teacher?'教师工作台':'学生实训台'}</div><nav>${pages.map((p,i)=>button(p,'nav',p,p===page?'active':'')).join('')}</nav><div class="side-bottom">苏州旅游职业学院<br>吴山苑酒店 · 餐饮实训<br><span class="small">设计 · 服务 · 协同 · 复盘</span></div></aside><header><strong>${esc(page==='总览'?(teacher?'课堂总览':'实训总览'):page)}</strong><span>${esc(data.user.name)} · ${teacher?'教师':'学生 '+esc(data.user.id)} <a href="${accountCenter}">账号中心</a> ${button('退出','logout','','light')}</span></header><main><div class="pagehead"><div><span class="eyebrow">${teacher?'TEACHING WORKSPACE':'RESTAURANT SIMULATION'}</span><h1>${esc(page==='总览'?(teacher?'看见每一次学习进展':'今天，从一道好菜开始。'):page)}</h1><p class="muted">${teacher?'掌握实训过程，连接任务、成果与反馈。':'把菜单、订单与服务流程，变成可检验的学习成果。'}</p></div><span class="pill">${teacher?'使用时自动更新 · 空闲暂停':'服务器存档 · 独立个人餐厅'}</span></div><div id="content"></div><footer>本系统仅供课程教学与实训使用，菜品、订单与收款均为模拟。请使用虚构顾客信息；结账不会产生真实支付。</footer></main>`;const c=document.querySelector('#content');c.innerHTML=teacher?teacherPage():studentPage();if(!teacher)beatPresence(page)}
+function classroomFilterBar(){
+  const scopes=[['regular','正式数据'],['experimental','实验数据'],['all','全部数据']];
+  return `<form id="classroom-filters" class="toolbar classroom-filters" aria-label="课堂筛选">
+    <label>数据范围 <select name="scope" data-scope-filter>${scopes.map(([value,label])=>`<option value="${value}"${filters.scope===value?' selected':''}>${label}</option>`).join('')}</select></label>
+    <label>班级筛选 <select name="classId" data-class-filter>${classOptions(filters.classId)}</select></label>
+    <label>学生筛选 <input name="student" type="search" maxlength="80" value="${esc(filters.student)}" placeholder="姓名或学号"></label>
+    <button type="submit">筛选</button>
+  </form>`;
+}
+function readClassroomFilters(form){
+  const {classId,student,scope}=Object.fromEntries(new FormData(form));
+  return {classId,student:student.trim(),scope};
+}
+function render(){const teacher=isTeacher();const accountCenter=window.teachingAuth?(teacher?'/teacher/?next=admin':'/student/'):'/accounts/';window.dispatchEvent(new CustomEvent('teacher-chat-identity',{detail:teacher?{teacher:{id:data.user.id,name:data.user.name},context:{page}}:null}));const pages=teacher?['总览','任务完成进度','学生数据面板','班级管理','任务工单设计','提交与批阅','师生互动','教学演示']:['总览','菜单与分类管理','顾客点餐实训','后厨 KDS','营业统计与结账','点单二维码','课堂任务工单','师生互动'];if(!pages.includes(page))page='总览';app.innerHTML=`<aside><div class="brand">eMenu<span>电子菜单 · 教学仿真</span></div><div class="side-label">${teacher?'教师工作台':'学生实训台'}</div><nav>${pages.map((p,i)=>button(p,'nav',p,p===page?'active':'')).join('')}</nav><div class="side-bottom">苏州旅游职业学院<br>吴山苑酒店 · 餐饮实训<br><span class="small">设计 · 服务 · 协同 · 复盘</span></div></aside><header><strong>${esc(page==='总览'?(teacher?'课堂总览':'实训总览'):page)}</strong><span>${esc(data.user.name)} · ${teacher?'教师':'学生 '+esc(data.user.id)} <a href="${accountCenter}">账号中心</a> ${button('退出','logout','','light')}</span></header><main><div class="pagehead"><div><span class="eyebrow">${teacher?'TEACHING WORKSPACE':'RESTAURANT SIMULATION'}</span><h1>${esc(page==='总览'?(teacher?'看见每一次学习进展':'今天，从一道好菜开始。'):page)}</h1><p class="muted">${teacher?'掌握实训过程，连接任务、成果与反馈。':'把菜单、订单与服务流程，变成可检验的学习成果。'}</p></div><span class="pill">${teacher?'使用时自动更新 · 空闲暂停':'服务器存档 · 独立个人餐厅'}</span></div><div id="content"></div><footer>本系统仅供课程教学与实训使用，菜品、订单与收款均为模拟。请使用虚构顾客信息；结账不会产生真实支付。</footer></main>`;const c=document.querySelector('#content');c.innerHTML=teacher?teacherPage():studentPage();if(!teacher)beatPresence(page)}
 function metricCards(values){return `<div class="metrics">${values.map(([k,v])=>`<div class="card"><span class="muted">${k}</span><strong class="metric">${v}</strong></div>`).join('')}</div>`}
 function teacherPage(){const {students,submissions:subs,overview,publishedTasks}=data;
-if(page==='总览')return metricCards([['参与学生',overview.students],['班级数',overview.classes],['正在操作',overview.active],['已发布工单',publishedTasks],['待批阅成果',overview.pending],['已评价成果',overview.graded]])+`<div class="grid">${card('实训路径',`<ol class="path"><li>设计菜单：图片、分类与多规格定价</li><li>模拟点餐：桌号、规格、口味与备注</li><li>后厨协同：接单、制作、出餐</li><li>结账复盘：模拟收款、销量与改进</li></ol>`)}${card('教学安排',`<p>内置四份任务工单，学生完成业务后提交成果，教师可评分、反馈及退回修改。</p><p class="muted">学生档案按学号隔离；教师可在学生面板查看业务记录与操作轨迹，也可按班级归类查看。重复注册的统一账号可在 <a href="/teacher/students/" target="_blank" rel="noopener">学生账号管理</a> 中清理，课程业务数据保留。</p><p>${button('查看待批阅成果','nav','提交与批阅')} ${button('按班级管理','nav','班级管理')} ${button('打开教学演示','nav','教学演示')}</p>`)}</div>`;
-if(page==='任务完成进度')return classBar()+card('按学生追踪四阶段进度',table(['学生','班级','当前页面','最近活动','菜单品项','订单','已出餐 / 已结账','工单进度'],students.map(u=>{const x=u.summary;return[esc(u.name)+'<br>'+esc(u.id),esc(className(classOf(u))),pageText(u),seenText(u),x.menuCount,x.orderCount,x.servedCount+' / '+x.paidCount,u.submissionStats.count+' / '+publishedTasks]}))+pager());
-if(page==='学生数据面板')return classBar()+card('学生业务与学习表现',table(['学生','班级','餐厅','当前页面','最近活动','模拟实收','已结账单数','已评均分','操作'],students.map(u=>{const x=u.summary,r=u.submissionStats;return[esc(u.name)+'<br>'+esc(u.id),esc(className(classOf(u))),esc(x.restaurant||'—'),pageText(u),seenText(u),money(x.revenue),x.paidCount,r.graded?(r.totalScore/r.graded).toFixed(1):'未评价',previewButton(u)+' '+button('操作与订单','student',u.id)]}))+pager());
+if(page==='总览')return classroomFilterBar()+metricCards([['参与学生',overview.students],['班级数',overview.classes],['正在操作',overview.active],['已发布工单',publishedTasks],['待批阅成果',overview.pending],['已评价成果',overview.graded]])+`<div class="grid">${card('实训路径',`<ol class="path"><li>设计菜单：图片、分类与多规格定价</li><li>模拟点餐：桌号、规格、口味与备注</li><li>后厨协同：接单、制作、出餐</li><li>结账复盘：模拟收款、销量与改进</li></ol>`)}${card('教学安排',`<p>内置四份任务工单，学生完成业务后提交成果，教师可评分、反馈及退回修改。</p><p class="muted">学生档案按学号隔离；教师可在学生面板查看业务记录与操作轨迹，也可按班级归类查看。重复注册的统一账号可在 <a href="/teacher/students/" target="_blank" rel="noopener">学生账号管理</a> 中清理，课程业务数据保留。</p><p>${button('查看待批阅成果','nav','提交与批阅')} ${button('按班级管理','nav','班级管理')} ${button('打开教学演示','nav','教学演示')}</p>`)}</div>`;
+if(page==='任务完成进度')return classroomFilterBar()+card('按学生追踪四阶段进度',table(['学生','班级','当前页面','最近活动','菜单品项','订单','已出餐 / 已结账','工单进度'],students.map(u=>{const x=u.summary;return[esc(u.name)+'<br>'+esc(u.id),esc(className(classOf(u))),pageText(u),seenText(u),x.menuCount,x.orderCount,x.servedCount+' / '+x.paidCount,u.submissionStats.count+' / '+publishedTasks]}))+pager());
+if(page==='学生数据面板')return classroomFilterBar()+card('学生业务与学习表现',table(['学生','班级','餐厅','当前页面','最近活动','模拟实收','已结账单数','已评均分','操作'],students.map(u=>{const x=u.summary,r=u.submissionStats;return[esc(u.name)+'<br>'+esc(u.id),esc(className(classOf(u))),esc(x.restaurant||'—'),pageText(u),seenText(u),money(x.revenue),x.paidCount,r.graded?(r.totalScore/r.graded).toFixed(1):'未评价',previewButton(u)+' '+button('操作与订单','student',u.id)]}))+pager());
 if(page==='班级管理'){
-  const enrolled=classes().reduce((total,c)=>total+c.count,0);
-  const defaultCount=classes().find(c=>c.id==='default')?.count||0;
-  const cards=classes().map(c=>card(esc(c.name),`<span class="pill">${c.count} 名学生</span><p class="muted">${esc(c.note||'—')}</p><p>订单 ${c.orders} 笔 · 模拟实收 <b>${money(c.revenue)}</b></p><div class="toolbar">${button('查看本班数据','filterClass',c.id)}${c.id==='default'?'':button('重命名 / 备注','editClass',c.id,'light')}</div>`)).join('');
-  return `<div class="toolbar">${button('＋ 新建班级','editClass')}<label class="inline">筛选 <select data-class-filter>${classOptions(classFilter)}</select></label></div>`+metricCards([['班级总数',classes().length],['学生总数',enrolled],['默认教学班',defaultCount],['已归班学生',enrolled-defaultCount]])+`<div class="grid space">${cards}</div>`+card('学生归班（只调整班级归类，不改动学生业务存档）',table(['学生','学号','当前班级','最近活动','调整班级'],students.map(u=>[esc(u.name),esc(u.id),esc(className(classOf(u))),seenText(u),`<select data-move="${esc(u.id)}">${classes().map(c=>`<option value="${esc(c.id)}"${classOf(u)===c.id?' selected':''}>${esc(c.name)}</option>`).join('')}</select>`]))+pager());
+  const visibleClasses=classes().filter(c=>filters.classId==='all'||c.id===filters.classId);
+  const enrolled=visibleClasses.reduce((total,c)=>total+c.count,0);
+  const defaultCount=visibleClasses.find(c=>c.id==='default')?.count||0;
+  const cards=visibleClasses.map(c=>card(esc(c.name),`<span class="pill">${c.count} 名学生</span><p class="muted">${esc(c.note||'—')}</p><p>订单 ${c.orders} 笔 · 模拟实收 <b>${money(c.revenue)}</b></p><div class="toolbar">${button('查看本班数据','filterClass',c.id)}${c.id==='default'?'':button('重命名 / 备注','editClass',c.id,'light')}</div>`)).join('');
+  return classroomFilterBar()+`<div class="toolbar">${button('＋ 新建班级','editClass')}</div>`+metricCards([['班级总数',visibleClasses.length],['学生总数',enrolled],['默认教学班',defaultCount],['已归班学生',enrolled-defaultCount]])+`<div class="grid space">${cards}</div>`+card('学生归班（只调整班级归类，不改动学生业务存档）',table(['学生','学号','当前班级','最近活动','调整班级'],students.map(u=>[esc(u.name),esc(u.id),esc(className(classOf(u))),seenText(u),`<select data-move="${esc(u.id)}">${classes().map(c=>`<option value="${esc(c.id)}"${classOf(u)===c.id?' selected':''}>${esc(c.name)}</option>`).join('')}</select>`]))+pager());
 }
 if(page==='教学演示'){return `<div class="notice">教学演示页使用独立数据包（30 笔订单 · 14 道菜 · 4 种后厨状态 · 7 种支付方式），完整呈现后厨 KDS、营业统计与数据决策，适合课堂投屏讲解。演示数据只读，不写入任何学生账号。</div><div class="toolbar">${button('后厨 KDS','demoSection','kds')}${button('营业统计','demoSection','stat')}${button('数据决策','demoSection','insight')}${button('菜单管理','demoSection','menu','light')}<span class="muted">也可直接在下方页面顶部切换页签</span></div><iframe class="demo-frame" id="demoFrame" title="经营数据教学演示" src="/catering/original.html?demo=1&section=kds"></iframe>`;}
 if(page==='任务工单设计')return button('＋ 新建任务工单','editTask')+`<div class="grid space">${data.tasks.map(t=>card(esc(t.title),`<span class="pill">${t.published?'已发布':'草稿'}</span><p>${esc(t.steps)}</p><p class="muted">成果：${esc(t.deliverable)}</p><p class="muted">评价：${esc(t.rubric)}</p>${button('编辑','editTask',t.id)}`)).join('')}</div>`;
-if(page==='提交与批阅')return card('学生成果与反馈',table(['学生','工单','提交时间','状态','分数','操作'],subs.map(x=>[esc(x.name),esc(x.title),esc(new Date(x.time).toLocaleString('zh-CN')),esc(x.status),x.score??'—',button('查看与批阅','review',x.id)]))+pager());
+if(page==='提交与批阅')return classroomFilterBar()+card('学生成果与反馈',table(['学生','班级','工单','提交时间','状态','分数','操作'],subs.map(x=>[esc(x.name)+'<br>'+esc(x.studentId),esc(className(classOf(x))),esc(x.title),esc(new Date(x.time).toLocaleString('zh-CN')),esc(x.status),x.score??'—',button('查看与批阅','review',x.id)]))+pager());
 return messages()}
 function legacyStudentPage(){const state=s(),m=metrics(state);
 if(page==='总览')return metricCards([['已上架菜品',state.menu.filter(d=>d.on).length],['今日订单',m.orders],['模拟实收',money(m.revenue)],['待完成工单',data.tasks.filter(t=>!data.submissions.some(x=>x.taskId===t.id&&x.status==='已评价')).length]])+`<div class="grid">${card(esc(state.restaurant),`<p>以餐厅运营者的身份设计菜单，切换到顾客点餐，再在后厨接单出餐，最后结账并复盘。</p>${button('开始菜单设计','nav','餐厅与菜单设计')} ${button('进入顾客点餐','nav','顾客点餐','','')}`)}${card('课堂任务',data.tasks.map(t=>`<p><b>${esc(t.title)}</b><br><span class="muted">${esc(t.steps)}</span></p>`).join(''))}</div>`;
@@ -80,7 +95,7 @@ function messages(){return card('师生互动',`<form id="message">${isTeacher()
 function modal(title,html,wide){document.querySelector('dialog')?.remove();const d=document.createElement('dialog');if(wide)d.className='wide';d.innerHTML=`<div class="between"><h2>${esc(title)}</h2>${button('关闭','close','','light')}</div>${html}`;document.body.append(d);d.showModal();return d}
 function form(id,html){return `<form id="${id}">${html}<div class="toolbar"><button>保存${id==='pay'?'并完成模拟收款':''}</button>${button('取消','close','','light')}</div></form>`}
 async function save(action){s().logs.unshift({time:new Date().toISOString(),action});s().logs=s().logs.slice(0,300);await api('state',{state:s()});toast('已保存到服务器');render()}
-document.addEventListener('click',async e=>{const b=e.target.closest('[data-act]');if(!b||busy)return;const a=b.dataset.act,id=b.dataset.id;try{if(a==='nav'){if(page!==id)await openPage(id);return}if(a==='page'){await openPage(page,classFilter,Number(id));return}if(['logout','submit'].includes(a))await flushNative();if(a==='logout'){if(window.teachingAuth)await window.teachingAuth.logout();else await api('logout',{});cart=[];login()}if(a==='close')b.closest('dialog').close();
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-act]');if(!b||busy)return;const a=b.dataset.act,id=b.dataset.id;try{if(a==='nav'){if(page!==id)await openPage(id);return}if(a==='page'){await openPage(page,filters,Number(id));return}if(['logout','submit'].includes(a))await flushNative();if(a==='logout'){if(window.teachingAuth)await window.teachingAuth.logout();else await api('logout',{});cart=[];login()}if(a==='close')b.closest('dialog').close();
 if(a==='restaurant')modal('餐厅设置',form('restaurant',field('餐厅名称','restaurant',s().restaurant)));
 if(a==='dish'){const d=s().menu.find(d=>d.id===id)||{category:'热菜',price:28,cost:10,stock:20,on:true};modal('菜品信息',form('dish',`<input name="id" type="hidden" value="${esc(id)}">${field('菜名','name',d.name)}${field('分类','category',d.category)}<div class="grid">${field('售价（元）','price',d.price,'number','min="0.01" max="100000" step="0.01"')}${field('食材成本（元）','cost',d.cost,'number','min="0" step="0.01"')}${field('可售库存（份）','stock',d.stock,'number','min="0" step="1"')}</div>${field('过敏原说明','allergen',d.allergen)}${area('菜品介绍','description',d.description)}<label>销售状态<select name="on"><option value="true" ${d.on?'selected':''}>上架</option><option value="false" ${!d.on?'selected':''}>下架</option></select></label>`))}
 if(a==='add'){const d=s().menu.find(d=>d.id===id),i=cart.find(i=>i.id===id);if((i?.qty||0)>=d.stock)throw Error('库存不足');if(i)i.qty++;else cart.push({...d,qty:1});render()}
@@ -100,16 +115,20 @@ if(a==='review'){
  modal('批阅 · '+sub.name,form('review',`<input type="hidden" name="id" value="${esc(id)}"><h3>${esc(sub.title)}</h3><p class="pre">${esc(sub.content)}</p><p class="muted">业务快照：${sub.evidence.menu.length} 道菜，${sub.evidence.orders.length} 笔订单，已结账 ${metrics(sub.evidence).paid} 笔。</p><details><summary>展开业务证据和历史修订</summary><pre>${esc(JSON.stringify({evidence:sub.evidence,history:sub.history},null,2))}</pre></details>${field('评分（0—100）','score',sub.score??0,'number','min="0" max="100" step="1"')}${area('反馈意见','feedback',sub.feedback)}<label>处理结果<select name="status"><option>已评价</option><option>退回修改</option></select></label>`))}
 if(a==='preview'){const u=data.students.find(u=>u.id===id);if(!u)throw Error('学生不存在');const section=b.dataset.section||'menu';const url='/catering/view.html?preview='+encodeURIComponent(id)+'&section='+encodeURIComponent(section);modal('学生页面 · '+u.name,`<div class="between"><span class="muted">只读预览 · ${esc(u.presence&&u.presence.page||'业务页面')} · 最近操作 ${esc(u.presence&&u.presence.at?new Date(u.presence.at).toLocaleString('zh-CN'):'未知')}</span><a href="${url}" target="_blank" rel="noopener">在新窗口打开</a></div><iframe class="preview-frame" title="学生页面只读预览" src="${url}"></iframe>`,true)}
 if(a==='student'){const u=data.students.find(u=>u.id===id);if(!u)throw Error('学生不存在');modal('学生业务 · '+u.name,'<p class="muted">正在读取学生业务存档…</p>');const v=await api('student-view',{id});const st=v.state||{};modal('学生业务 · '+u.name,`<h3>${esc(st.restaurant||u.name+'的餐厅')}</h3>${table(['时间','操作'],(Array.isArray(st.logs)?st.logs:[]).map(l=>[esc(new Date(l.time).toLocaleString('zh-CN')),esc(l.action)]))}<details><summary>完整菜单与订单</summary><pre>${esc(JSON.stringify({menu:st.menu||[],orders:st.orders||[]},null,2))}</pre></details>`)}
-if(a==='filterClass'){await openPage(page,id);return}
+if(a==='filterClass'){await openPage(page,{...filters,classId:id});return}
 if(a==='editClass'){const c=classes().find(x=>x.id===id);modal(c?'编辑班级 · '+c.name:'新建班级',form('class',`<input name="id" type="hidden" value="${esc(id)}">${field('班级名称','name',c?.name||'')}<label>班级备注<textarea name="note">${esc(c?.note||'')}</textarea></label><p class="muted">班级只用于教师端归类与筛选，不会修改学生已保存的菜单、订单和成绩。</p>`))}
 if(a==='demoSection'){const f=document.getElementById('demoFrame');if(f)f.src='/catering/original.html?demo=1&section='+encodeURIComponent(id);return}
 }catch(err){toast(err.message)}});
 document.addEventListener('change',async e=>{
   if(busy)return;
-  const filter=e.target.closest('[data-class-filter]');
+  const filter=e.target.closest('[data-class-filter],[data-scope-filter]');
   const move=e.target.closest('[data-move]');
   try{
-    if(filter)await openPage(page,filter.value);
+    if(filter){
+      const next=readClassroomFilters(filter.form);
+      if(filter.name==='scope')next.classId='all';
+      await openPage(page,next);
+    }
     if(move){
       busy=true;
       await api('classes/move',{studentId:move.dataset.move,classId:move.value});
@@ -119,7 +138,13 @@ document.addEventListener('change',async e=>{
   }catch(err){toast(err.message);render()}
   finally{if(move)busy=false}
 });
-document.addEventListener('submit',async e=>{e.preventDefault();if(busy)return;busy=true;const f=e.target,v=Object.fromEntries(new FormData(f));try{
+document.addEventListener('submit',async e=>{
+e.preventDefault();if(busy)return;const f=e.target;
+if(f.id==='classroom-filters'){
+  try{await openPage(page,readClassroomFilters(f))}catch(err){toast(err.message)}
+  return;
+}
+busy=true;const v=Object.fromEntries(new FormData(f));try{
 if(f.getAttribute('id')==='login'){await api('login',v);await refresh();return}
 if(f.getAttribute('id')==='message'){await api('message',v);await refresh();toast('留言已发送');return}
 if(f.getAttribute('id')==='class'){const r=await api('classes',{id:v.id||undefined,name:v.name,note:v.note});toast(v.id?'已更新班级':'已新建班级 · '+r.class.name)}
