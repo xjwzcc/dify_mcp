@@ -131,7 +131,8 @@ test('扫码点单直接进入学生后厨，教师可只读预览学生页面',
   const row = teacherSnap.data.students.find(s => s.id === 'S001');
   assert.equal(row.presence.page, '后厨 KDS');
   assert.equal(row.presence.section, 'kds');
-  assert.equal(row.state.original.orders.length, 2);
+  const detail = await call('/catering/api/student-view', { id: 'S001' }, teacher.cookie);
+  assert.equal(detail.data.state.original.orders.length, 2);
 
   // 教师只读预览：教师可读，学生与匿名均被拒绝
   assert.equal((await call('/catering/api/student-view', { id: 'S001' }, teacher.cookie)).status, 200);

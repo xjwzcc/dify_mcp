@@ -79,14 +79,17 @@ test('班级归类、教学演示数据包与顾客支付方式', async t => {
   assert.equal((await call('/catering/api/qr/' + token + '/order', { table: 'A01', guests: 2, pay: 'zzz', items: [{ id: dish.id, qty: 1 }] })).status, 400);
 
   snapshot = await call('/catering/api/snapshot', undefined, teacher.cookie);
-  const me = snapshot.data.students.find(s => s.id === 'S001');
+  const me = (await call('/catering/api/student-view', { id: 'S001' }, teacher.cookie)).data;
   const placed = me.state.original.orders.find(o => o.no === order.data.no);
   assert.equal(placed.payMethod, 'wx');
   assert.equal(placed.payName, '微信支付');
+  assert.ok(!snapshot.data.students.find(s => s.id === 'S001').state, '教师总览不应返回学生完整存档');
 
   // 归回默认班，学生数据不被删除
   assert.equal((await call('/catering/api/classes/move', { studentId: 'S001', classId: 'default' }, teacher.cookie)).status, 200);
   snapshot = await call('/catering/api/snapshot', undefined, teacher.cookie);
+  const after = (await call('/catering/api/student-view', { id: 'S001' }, teacher.cookie)).data;
   assert.equal(snapshot.data.students[0].classId, 'default');
-  assert.equal(snapshot.data.students[0].state.original.menu.length, me.state.original.menu.length);
+  assert.equal(after.state.original.menu.length, me.state.original.menu.length);
+  assert.equal(snapshot.data.students[0].summary.menuCount, after.state.menu.length);
 });

@@ -20,6 +20,15 @@ db.prepare('INSERT OR IGNORE INTO classes VALUES(?,?)').run(DEFAULT_CLASS.id,JSO
 const classList=()=>db.prepare('SELECT record FROM classes ORDER BY rowid').all().map(x=>JSON.parse(x.record)).map(c=>({...c,count:db.prepare("SELECT COUNT(*) n FROM users u WHERE u.role='student' AND COALESCE((SELECT class_id FROM class_students m WHERE m.student_id=u.id),'default')=?").get(c.id).n}));
 const classOf=id=>db.prepare('SELECT class_id FROM class_students WHERE student_id=?').get(id)?.class_id||'default';
 const classExists=id=>Boolean(db.prepare('SELECT 1 FROM classes WHERE id=?').get(id));
+/* 教师总览只传轻量摘要，学生完整业务存档按需读取，避免 31 份大存档拖慢整页。 */
+function studentSummary(row){
+  const st=JSON.parse(row.state||'{}'),orders=Array.isArray(st.orders)?st.orders:[],menu=Array.isArray(st.menu)?st.menu:[];
+  const paid=orders.filter(o=>o.status==='已结账'),served=orders.filter(o=>['待结账','已结账'].includes(o.status));
+  return{version:Number(st.version)||0,restaurant:String(st.restaurant||''),menuCount:menu.length,
+    orderCount:orders.length,servedCount:served.length,paidCount:paid.length,
+    revenue:paid.reduce((a,o)=>a+(Number(o.payable)||0),0),
+    profit:paid.reduce((a,o)=>a+(Number(o.payable)||0)-(Array.isArray(o.items)?o.items:[]).reduce((x,i)=>x+(Number(i.cost)||0)*(Number(i.qty)||0),0),0)};
+}
 function saveClass(b){
   const name=String(b.name||'').trim(),note=String(b.note||'').trim().slice(0,100);
   if(!name||name.length>30)fail('班级名称需为1—30个字符');
@@ -204,7 +213,7 @@ if(route==='/api/teaching-demo'){
 if(route==='/api/snapshot'){
   const snapshot={user:{id:u.id,name:u.name,role:u.role},state:JSON.parse(u.state)};
   if(url.searchParams.get('view')==='business')return send(res,200,snapshot);
-  return send(res,200,{...snapshot,tasks:rows('tasks').filter(t=>u.role==='teacher'||t.published),submissions:rows('submissions').filter(s=>u.role==='teacher'||s.studentId===u.id),messages:rows('messages').filter(m=>u.role==='teacher'||m.target==='all'||m.target===u.id),classes:u.role==='teacher'?classList():[],students:u.role==='teacher'?db.prepare("SELECT id,name,state FROM users WHERE role='student'").all().map(s=>({...s,state:JSON.parse(s.state),classId:classOf(s.id),presence:presence.get(s.id)||null})):[]});
+  return send(res,200,{...snapshot,tasks:rows('tasks').filter(t=>u.role==='teacher'||t.published),submissions:rows('submissions').filter(s=>u.role==='teacher'||s.studentId===u.id),messages:rows('messages').filter(m=>u.role==='teacher'||m.target==='all'||m.target===u.id),classes:u.role==='teacher'?classList():[],students:u.role==='teacher'?db.prepare("SELECT id,name,state FROM users WHERE role='student'").all().map(s=>({id:s.id,name:s.name,classId:classOf(s.id),presence:presence.get(s.id)||null,summary:studentSummary(s)})):[]});
 }
 if(route==='/api/business-state'){
   if(u.role!=='student'||b.studentId!==u.id)fail('请确认当前登录的是原学生账号',403);
