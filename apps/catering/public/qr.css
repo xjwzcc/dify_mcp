@@ -24,6 +24,10 @@ header.shop .sub{color:var(--muted);font-size:12px}
 .dish{display:flex;gap:12px;align-items:center;background:var(--cream);border:1px solid var(--line);border-radius:14px;padding:14px}
 .dish.off{opacity:.55}
 .dish .emoji{width:58px;height:58px;flex:none;display:grid;place-items:center;font-size:30px;background:#eef2e8;border-radius:12px}
+.dish .photo{width:58px;height:58px;flex:none;border-radius:12px;overflow:hidden;background:#eef2e8}
+.dish .photo img{width:100%;height:100%;object-fit:cover;display:block}
+.sheetphoto{width:100%;max-height:180px;overflow:hidden;border-radius:12px;margin:8px 0 10px;background:#eef2e8}
+.sheetphoto img{width:100%;height:180px;object-fit:cover;display:block}
 .dish .dmain{flex:1;min-width:0}
 .dish h3{font-size:16px;display:flex;align-items:center;gap:6px;margin-bottom:3px}
 .dish .tag{font-size:10px;font-weight:400;color:#54704a;background:#e9eee2;border-radius:5px;padding:2px 5px}

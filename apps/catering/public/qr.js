@@ -83,8 +83,9 @@
   }
 
   function dishRow(d){
+    const pic=d.img?'<div class="photo"><img src="'+esc(d.img)+'" alt="'+esc(d.name)+'" loading="lazy" onerror="this.style.display=\'none\'"></div>':'<div class="emoji">'+esc(d.emoji||'🍽️')+'</div>';
     return '<article class="dish'+(d.soldOut?' off':'')+'">'
-      +'<div class="emoji">'+esc(d.emoji||'🍽️')+'</div>'
+      +pic
       +'<div class="dmain"><h3>'+esc(d.name)+(d.specs.length?' <span class="tag">多规格</span>':'')+'</h3>'
       +'<p>'+esc(d.desc||'')+'</p>'
       +'<div class="price">'+money(d.price)+'<span class="unit">/'+esc(d.unit||'份')+'</span></div></div>'
@@ -170,7 +171,7 @@
   function openSheet(d){
     let spec=d.specs[0],qty=1,mods=[];
     sheetHost.innerHTML='<div class="mask"></div><div class="sheetbox">'
-      +'<h3>'+esc(d.name)+'</h3><p class="muted">'+esc(d.desc||'')+'</p>'
+      +'<h3>'+esc(d.name)+'</h3>'+(d.img?'<div class="sheetphoto"><img src="'+esc(d.img)+'" alt="'+esc(d.name)+'"></div>':'')+'<p class="muted">'+esc(d.desc||'')+'</p>'
       +'<div class="form"><label>规格<select id="pickSpec">'+d.specs.map(s=>'<option value="'+esc(s)+'">'+esc(s)+'</option>').join('')+'</select></label></div>'
       +'<div class="mods" id="mods">'+MODS.map(m=>'<button class="mod" data-mod="'+esc(m)+'">'+esc(m)+'</button>').join('')+'</div>'
       +'<div class="qty big"><button data-step="-1">−</button><span id="pickQty">1</span><button data-step="1">＋</button></div>'

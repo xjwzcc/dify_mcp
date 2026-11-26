@@ -49,7 +49,7 @@ const initial = {
     items: [{ name: '龙井虾仁（整份）', price: 88, qty: 1, cost: 40, mods: [], dishId: 'd1' }] }],
   original: {
     restaurant: '张三测试餐厅', cats: ['热菜'], tables: ['A01', 'A02'], seq: 100, voucher: {}, open: true,
-    menu: [{ id: 'd1', name: '龙井虾仁', cat: '热菜', price: 88, unit: '份', desc: '测试菜品', emoji: '🍤', specs: [{ n: '整份' }], specPrice: { '整份': 88 }, soldOut: false }],
+    menu: [{ id: 'd1', name: '龙井虾仁', cat: '热菜', price: 88, unit: '份', desc: '测试菜品', emoji: '🍤', specs: [{ n: '整份' }], specPrice: { '整份': 88 }, soldOut: false, img: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/lK3Q6wAAAABJRU5ErkJggg==' }],
     orders: [existingOrder]
   }
 };
@@ -87,6 +87,11 @@ test('扫码点单直接进入学生后厨，教师可只读预览学生页面',
   assert.equal(menu.data.open, true);
   assert.deepEqual(menu.data.tables, ['A01', 'A02']);
   assert.equal(menu.data.menu[0].specs[0], '整份');
+  assert.match(menu.data.menu[0].img, new RegExp('^/catering/api/qr/' + token + '/image\\?id=d1&v=[a-f0-9]{10}$'));
+  const picture = await fetch(BASE + menu.data.menu[0].img);
+  assert.equal(picture.status, 200);
+  assert.equal(picture.headers.get('content-type'), 'image/png');
+  assert.ok((await picture.arrayBuffer()).byteLength > 0);
 
   // 下单：服务端按菜单重新计价，订单直接追加到学生店铺
   const placed = await call('/catering/api/qr/' + token + '/order', {

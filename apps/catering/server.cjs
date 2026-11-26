@@ -75,14 +75,29 @@ function qrStudent(token){
 }
 function qrMenu(row){
   const state=JSON.parse(row.state||'{}'),src=state.original||{};
-  const cats=Array.isArray(src.cats)?src.cats:[],menu=Array.isArray(src.menu)?src.menu:[];
-  return{ok:true,token:qrToken(row.id),restaurant:src.restaurant||state.restaurant||(row.name+'的餐厅'),
+  const cats=Array.isArray(src.cats)?src.cats:[],menu=Array.isArray(src.menu)?src.menu:[],token=qrToken(row.id);
+  return{ok:true,token,restaurant:src.restaurant||state.restaurant||(row.name+'的餐厅'),
     student:{id:row.id,name:row.name},open:src.open!==false,
     tables:Array.isArray(src.tables)&&src.tables.length?src.tables:DEFAULT_TABLES,cats,updated:Date.now(),
     menu:menu.slice(0,80).map(d=>({id:String(d.id),name:String(d.name||''),cat:String(d.cat||''),
       price:Number(d.price)||0,unit:String(d.unit||''),emoji:String(d.emoji||'🍽️'),desc:String(d.desc||'').slice(0,80),
+      img:d.img&&String(d.img).startsWith('data:image/')?'/catering/api/qr/'+token+'/image?id='+encodeURIComponent(String(d.id))+'&v='+crypto.createHash('sha1').update(String(d.img)).digest('hex').slice(0,10):(/^https?:\/\//i.test(String(d.img||''))?String(d.img):''),
       soldOut:!!d.soldOut,specs:Array.isArray(d.specs)?d.specs.map(s=>String(s.n)).slice(0,8):[],
       specPrice:d.specPrice&&typeof d.specPrice==='object'?d.specPrice:{}}))};
+}
+/* 学生上传的菜品图保存在原始菜单的 img（通常为压缩后的 data URL）。
+   点单页单独取图并缓存，菜单 JSON 只带图片地址，避免把整份图片塞进接口。 */
+function qrImage(row,url,res){
+  const state=JSON.parse(row.state||'{}'),src=state.original||{},id=String(url.searchParams.get('id')||'');
+  const dish=(Array.isArray(src.menu)?src.menu:[]).find(d=>d&&String(d.id)===id);
+  if(!dish||!dish.img)fail('菜品图片不存在',404);
+  const raw=String(dish.img);
+  const m=/^data:(image\/(?:png|jpeg|jpg|webp|gif));base64,([A-Za-z0-9+/=\s]+)$/i.exec(raw);
+  if(!m)fail('图片格式不支持',404);
+  const body=Buffer.from(m[2].replace(/\s+/g,''),'base64');
+  if(!body.length||body.length>2000000)fail('图片大小无效',413);
+  res.writeHead(200,{'Content-Type':m[1].toLowerCase().replace('image/jpg','image/jpeg'),'Content-Length':body.length,'Cache-Control':'public, max-age=3600','X-Content-Type-Options':'nosniff'});
+  res.end(body);
 }
 function qrOrder(row,b){
   const state=JSON.parse(row.state||'{}'),src=state.original;
@@ -160,12 +175,13 @@ if(!route.startsWith('/api/')&&!['GET','HEAD'].includes(req.method))fail('页面
 if(req.method!=='GET'&&req.headers.origin&&new URL(req.headers.origin).host!==req.headers.host)fail('拒绝跨站请求',403);
 let b={};if(req.method==='POST'){req.setEncoding('utf8');let s='';for await(const c of req){s+=c;if(s.length>16000000)fail('数据过大')}b=JSON.parse(s||'{}')}
 if(route==='/api/health'&&req.method==='GET')return send(res,200,{ok:true,product:'catering'});
-if(route.startsWith('/api/')){const okMethod=route==='/api/classes'?['GET','POST'].includes(req.method):(['/api/snapshot','/api/submission-detail','/api/teaching-demo'].includes(route)?req.method==='GET':req.method==='POST');if(!okMethod)fail('请求方法无效',405);}
+if(route.startsWith('/api/')){const okMethod=/^\/api\/qr\/[A-Za-z0-9_-]{16,64}\/image$/.test(route)?req.method==='GET':(route==='/api/classes'?['GET','POST'].includes(req.method):(['/api/snapshot','/api/submission-detail','/api/teaching-demo'].includes(route)?req.method==='GET':req.method==='POST'));if(!okMethod)fail('请求方法无效',405);}
 /* 扫码顾客端公共接口：无需登录，按码限流，只读菜单 / 下单 / 查状态 */
-const qrApi=/^\/api\/qr\/([A-Za-z0-9_-]{16,64})(?:\/(order|status))?$/.exec(route);
+const qrApi=/^\/api\/qr\/([A-Za-z0-9_-]{16,64})(?:\/(order|status|image))?$/.exec(route);
 if(qrApi){
   const token=qrApi[1],action=qrApi[2]||'menu',row=qrStudent(token);
   if(!row)fail('点单二维码无效，请让店员重新生成',404);
+  if(action==='image')return qrImage(row,url,res);
   if(!qrRate(token,action))fail('操作过于频繁，请稍后再试',429);
   if(action==='menu')return send(res,200,qrMenu(row));
   if(action==='order')return send(res,200,qrOrder(row,b));
